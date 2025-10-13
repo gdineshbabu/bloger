@@ -16,21 +16,22 @@ import {
   Menu, X, ChevronDown, Rows, Columns, Image as ImageIcon, Type, List as ListIcon, Video, Link as LinkIcon, Minus, Square,
   Star, Sparkles, Settings, History, LucideProps, RectangleHorizontal, LayoutPanelLeft, UserSquare, FileText, BookImage, Layers, MessageSquare, PanelRight, Loader2, CheckCircle2, AlertCircle, Clock, Check, Code, Quote, GitBranch, MessageCircleQuestion, Footprints, Captions, ListOrdered, GalleryHorizontal, ArrowLeftCircle, ArrowRightCircle, GalleryThumbnails, Copy, SlidersHorizontal, Replace, ChevronsUpDown, GalleryVerticalEnd, Presentation
 } from 'lucide-react';
-import { GoogleGenerativeAI } from "@google/generative-ai";
 import * as lucideIcons from 'lucide-react';
 
-const apiKey = "AIzaSyAT5DlkF5bbvu7_vQIXr3sjAqz40_5q9A0";
-const genAI = new GoogleGenerativeAI(apiKey);
-const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-
 const generateContentWithGemini = async (prompt: string): Promise<string> => {
-  try {
-    const result = await model.generateContent(prompt);
-    return (await result.response).text();
-  } catch (error) {
-    console.error("Gemini Error:", error);
-    return "Error: Could not generate content.";
-  }
+    try {
+        const response = await fetch('/api/generate-layout', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prompt }),
+        });
+        if (!response.ok) throw new Error('Failed to generate content');
+        const data = await response.json();
+        return data.text;
+    } catch (error) {
+        console.error("Client-side Gemini Error:", error);
+        return "Error: Could not generate content.";
+    }
 };
 
 const getAuthToken = (): string | null => {
@@ -108,7 +109,8 @@ type EditorAction =
   | { type: 'ADD_HISTORY' }
   | { type: 'UNDO' }
   | { type: 'REDO' }
-  | { type: 'REVERT_TO_VERSION'; payload: { content: PageContent, pageStyles: PageStyles } };
+  | { type: 'REVERT_TO_VERSION'; payload: { content: PageContent, pageStyles: PageStyles } }
+  | { type: 'SET_PAGE_CONTENT'; payload: PageContent };;
 
 interface EditorState {
   pageContent: PageContent;
@@ -145,551 +147,580 @@ const initialState: EditorState = {
 const getUniqueId = (type: ElementType) => `${type}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
 const editorReducer = produce((draft: EditorState, action: EditorAction) => {
-  const addHistoryEntry = () => {
-    const currentStateString = JSON.stringify(draft.history[draft.historyIndex]?.content || {});
-    const newStateString = JSON.stringify(draft.pageContent);
-    if (currentStateString === newStateString) return;
+  const addHistoryEntry = () => {
+    const currentStateString = JSON.stringify(draft.history[draft.historyIndex]?.content || {});
+    const newStateString = JSON.stringify(draft.pageContent);
+    if (currentStateString === newStateString) return;
 
-    const newHistory = draft.history.slice(0, draft.historyIndex + 1);
-    newHistory.push({ content: JSON.parse(JSON.stringify(draft.pageContent)), timestamp: Date.now() });
-    draft.history = newHistory;
-    draft.historyIndex = newHistory.length - 1;
-  };
+    const newHistory = draft.history.slice(0, draft.historyIndex + 1);
+    newHistory.push({ content: JSON.parse(JSON.stringify(draft.pageContent)), timestamp: Date.now() });
+    draft.history = newHistory;
+    draft.historyIndex = newHistory.length - 1;
+  };
 
-  const findAndTraverse = (elements: Element[], callback: (element: Element, parent?: Element) => boolean | void, parentElement?: Element): boolean => {
-    for (const element of elements) {
-      if (callback(element, parentElement)) return true;
-      if (element.children?.length) {
-        if (findAndTraverse(element.children, callback, element)) return true;
-      }
-      if (element.type === 'columns') {
-        try {
-          const content = JSON.parse(element.content);
-          for (const col of content.columns) {
-            if (findAndTraverse(col.children, callback, element)) return true;
-          }
-        } catch (e) {}
-      }
-    }
-    return false;
-  };
+  const findAndTraverse = (elements: Element[], callback: (element: Element, parent?: Element) => boolean | void, parentElement?: Element): boolean => {
+    for (const element of elements) {
+      if (callback(element, parentElement)) return true;
+      if (element.children?.length) {
+        if (findAndTraverse(element.children, callback, element)) return true;
+      }
+      if (element.type === 'columns') {
+        try {
+          const content = JSON.parse(element.content);
+          for (const col of content.columns) {
+            if (findAndTraverse(col.children, callback, element)) return true;
+          }
+        } catch (e) {}
+      }
+    }
+    return false;
+  };
 
-  const recursiveDelete = (elements: Element[], elementId: string): Element[] => {
-    return elements.filter(el => {
-      if (el.id === elementId) return false;
-      if (el.children) el.children = recursiveDelete(el.children, elementId);
-      if (el.type === 'columns') {
-        try {
-          const content = JSON.parse(el.content);
-          content.columns.forEach((col: { children: Element[] }) => {
-            col.children = recursiveDelete(col.children, elementId);
-          });
-          el.content = JSON.stringify(content, null, 2);
-        } catch (e) {}
-      }
-      return true;
-    });
-  };
+  switch (action.type) {
+    case 'SET_PAGE_CONTENT': {
+      draft.pageContent = action.payload;
+      draft.selectedElementId = null;
+      addHistoryEntry();
+      break;
+    }
+    case 'SET_INITIAL_STATE': {
+      draft.pageContent = action.payload.content;
+      draft.pageStyles = action.payload.pageStyles;
+      break;
+    }
+    case 'REVERT_TO_VERSION': {
+      draft.pageContent = action.payload.content;
+      draft.pageStyles = action.payload.pageStyles;
+      addHistoryEntry();
+      break;
+    }
+    case 'ADD_ELEMENT': {
+      const { elements: elementsToAdd, parentId, index } = action.payload;
+      if (parentId === 'canvas') {
+        draft.pageContent.splice(index, 0, ...elementsToAdd);
+      } else {
+        findAndTraverse(draft.pageContent, (parent) => {
+          if (parent.id === parentId) {
+             if (parent.children == null) parent.children = [];
+             parent.children.splice(index, 0, ...elementsToAdd);
+             return true;
+          }
+          if (parent.type === 'columns') {
+            const content = JSON.parse(parent.content);
+            const col = content.columns.find((c: {id: string}) => c.id === parentId);
+            if (col) {
+              if (col.children == null) col.children = [];
+              col.children.splice(index, 0, ...elementsToAdd);
+              parent.content = JSON.stringify(content, null, 2);
+              return true;
+            }
+          }
+          return false;
+        });
+      }
+      draft.selectedElementId = elementsToAdd[elementsToAdd.length - 1].id;
+      addHistoryEntry();
+      break;
+    }
+    case 'MOVE_ELEMENT': {
+      const { draggedId, targetParentId, targetIndex } = action.payload;
+      let draggedElement: Element | null = null;
 
-  switch (action.type) {
-    case 'SET_INITIAL_STATE': {
-      draft.pageContent = action.payload.content;
-      draft.pageStyles = action.payload.pageStyles;
-      break;
-    }
-    case 'REVERT_TO_VERSION': {
-      draft.pageContent = action.payload.content;
-      draft.pageStyles = action.payload.pageStyles;
-      addHistoryEntry();
-      break;
-    }
-    case 'ADD_ELEMENT': {
-      const { elements: elementsToAdd, parentId, index } = action.payload;
-      if (parentId === 'canvas') {
-        draft.pageContent.splice(index, 0, ...elementsToAdd);
-      } else {
-        findAndTraverse(draft.pageContent, (parent) => {
-          if (parent.id === parentId) {
-             if (parent.children == null) {
-                parent.children = [];
-             }
-             parent.children.splice(index, 0, ...elementsToAdd);
-             return true;
-          }
-          if (parent.type === 'columns') {
-            const content = JSON.parse(parent.content);
-            const col = content.columns.find((c: {id: string}) => c.id === parentId);
-            if (col) {
-              col.children.splice(index, 0, ...elementsToAdd);
-              parent.content = JSON.stringify(content, null, 2);
-              return true;
-            }
-          }
-          return false;
-        });
-      }
-      draft.selectedElementId = elementsToAdd[elementsToAdd.length - 1].id;
-      addHistoryEntry();
-      break;
-    }
-    case 'MOVE_ELEMENT': {
-      const { draggedId, targetParentId, targetIndex } = action.payload;
-      let draggedElement: Element | null = null;
+      const findAndRemoveMutative = (elements: Element[], elementId: string): boolean => {
+          const index = elements.findIndex(el => el.id === elementId);
+          if (index !== -1) {
+              draggedElement = { ...elements[index] };
+              elements.splice(index, 1);
+              return true;
+          }
+          for (const el of elements) {
+              if (el.children && findAndRemoveMutative(el.children, elementId)) return true;
+              if (el.type === 'columns') {
+                  try {
+                      const content = JSON.parse(el.content);
+                      let found = false;
+                      for (const col of content.columns) {
+                          if (findAndRemoveMutative(col.children, elementId)) {
+                              found = true;
+                              break;
+                          }
+                      }
+                      if (found) {
+                          el.content = JSON.stringify(content, null, 2);
+                          return true;
+                      }
+                  } catch (e) {}
+              }
+          }
+          return false;
+      };
 
-      const findAndRemove = (elements: Element[]): Element[] => {
-        return elements.filter(el => {
-          if (el.id === draggedId) {
-            draggedElement = el;
-            return false;
-          }
-          if (el.children) el.children = findAndRemove(el.children);
-          if (el.type === 'columns') {
-            try {
-              const content = JSON.parse(el.content);
-              content.columns.forEach((col: { children: Element[] }) => {
-                col.children = findAndRemove(col.children);
-              });
-              el.content = JSON.stringify(content, null, 2);
-            } catch (e) {}
-          }
-          return true;
-        });
-      };
-      draft.pageContent = findAndRemove(draft.pageContent);
+      findAndRemoveMutative(draft.pageContent, draggedId);
 
-      if (draggedElement) {
-        if (targetParentId === 'canvas') {
-          draft.pageContent.splice(targetIndex, 0, draggedElement);
-        } else {
-          findAndTraverse(draft.pageContent, (parent) => {
-            if (parent.id === targetParentId && parent.children) {
-             parent.children.splice(targetIndex, 0, draggedElement!);
-             return true;
-            }
-            if (parent.type === 'columns') {
-              const content = JSON.parse(parent.content);
-              const col = content.columns.find((c: { id: string }) => c.id === targetParentId);
-              if (col) {
-                col.children.splice(targetIndex, 0, draggedElement!);
-                parent.content = JSON.stringify(content, null, 2);
-                return true;
-              }
-            }
-            return false;
-          });
-        }
-      }
-      addHistoryEntry();
-      break;
-    }
-    case 'UPDATE_ELEMENT_STYLES': {
-      const { elementId, styles, breakpoint, state } = action.payload;
-      findAndTraverse(draft.pageContent, (el) => {
-        if(el.id === elementId) {
-          if (!el.styles[breakpoint]) el.styles[breakpoint] = { default: {}, hover: {} };
-          if (!el.styles[breakpoint][state]) el.styles[breakpoint][state] = {};
-          el.styles[breakpoint][state] = { ...el.styles[breakpoint][state], ...styles };
-          return true;
-        }
-      });
-      addHistoryEntry();
-      break;
-    }
-    case 'UPDATE_ELEMENT_CONTENT': {
-      findAndTraverse(draft.pageContent, (el) => {
-        if(el.id === action.payload.elementId) {
-          el.content = action.payload.content;
-          return true;
-        }
-      });
-      addHistoryEntry();
-      break;
-    }
-    case 'UPDATE_ELEMENT_ATTRIBUTE': {
-      const { elementId, attribute, value } = action.payload;
-      findAndTraverse(draft.pageContent, (el) => {
-        if(el.id === elementId) {
-          (el as any)[attribute] = value;
-          return true;
-        }
-      });
-      addHistoryEntry();
-      break;
-    }
-    case 'DELETE_ELEMENT': {
-      draft.pageContent = recursiveDelete(draft.pageContent, action.payload.elementId);
-      if (draft.selectedElementId === action.payload.elementId) {
-        draft.selectedElementId = null;
-      }
-      addHistoryEntry();
-      break;
-    }
-    case 'DUPLICATE_ELEMENT': {
-        const { elementId } = action.payload;
-        let newElementId: string | null = null;
+      if (draggedElement) {
+        if (targetParentId === 'canvas') {
+          draft.pageContent.splice(targetIndex, 0, draggedElement);
+        } else {
+          findAndTraverse(draft.pageContent, (parent) => {
+            if (parent.id === targetParentId) {
+                if (parent.children == null) parent.children = [];
+                parent.children.splice(targetIndex, 0, draggedElement!);
+                return true;
+            }
+            if (parent.type === 'columns') {
+              const content = JSON.parse(parent.content);
+              const col = content.columns.find((c: { id: string }) => c.id === targetParentId);
+              if (col) {
+                if (col.children == null) col.children = [];
+                col.children.splice(targetIndex, 0, draggedElement!);
+                parent.content = JSON.stringify(content, null, 2);
+                return true;
+              }
+            }
+            return false;
+          });
+        }
+      }
+      addHistoryEntry();
+      break;
+    }
+    case 'UPDATE_ELEMENT_STYLES': {
+      const { elementId, styles, breakpoint, state } = action.payload;
+      findAndTraverse(draft.pageContent, (el) => {
+        if(el.id === elementId) {
+          if (!el.styles[breakpoint]) el.styles[breakpoint] = { default: {}, hover: {} };
+          if (!el.styles[breakpoint][state]) el.styles[breakpoint][state] = {};
+          el.styles[breakpoint][state] = { ...el.styles[breakpoint][state], ...styles };
+          return true;
+        }
+      });
+      addHistoryEntry();
+      break;
+    }
+    case 'UPDATE_ELEMENT_CONTENT': {
+      findAndTraverse(draft.pageContent, (el) => {
+        if(el.id === action.payload.elementId) {
+          el.content = action.payload.content;
+          return true;
+        }
+      });
+      addHistoryEntry();
+      break;
+    }
+    case 'UPDATE_ELEMENT_ATTRIBUTE': {
+      const { elementId, attribute, value } = action.payload;
+      findAndTraverse(draft.pageContent, (el) => {
+        if(el.id === elementId) {
+          (el as any)[attribute] = value;
+          return true;
+        }
+      });
+      addHistoryEntry();
+      break;
+    }
+    case 'DELETE_ELEMENT': {
+      const findAndDelete = (elements: Element[], elementId: string): boolean => {
+        const index = elements.findIndex(el => el.id === elementId);
+        if (index !== -1) {
+          elements.splice(index, 1);
+          return true;
+        }
+        for (const el of elements) {
+          if (el.children && findAndDelete(el.children, elementId)) return true;
+          if (el.type === 'columns') {
+            try {
+              const content = JSON.parse(el.content);
+              let found = false;
+              for (const col of content.columns) {
+                if (findAndDelete(col.children, elementId)) {
+                  found = true;
+                  break;
+                }
+              }
+              if (found) {
+                el.content = JSON.stringify(content, null, 2);
+                return true;
+              }
+            } catch (e) {}
+          }
+        }
+        return false;
+      };
 
-        const deepCopyAndAssignNewIds = (element: Element): Element => {
-            const newElement = JSON.parse(JSON.stringify(element));
-            newElement.id = getUniqueId(newElement.type as ElementType);
-            if (newElement.children && newElement.children.length > 0) {
-                newElement.children = newElement.children.map((child: Element) => deepCopyAndAssignNewIds(child));
-            }
-            if (newElement.type === 'columns') {
-                const content = JSON.parse(newElement.content);
-                content.columns.forEach((col: { id: string, children: Element[] }) => {
-                    col.id = getUniqueId('column_internal');
-                    col.children = col.children.map((child: Element) => deepCopyAndAssignNewIds(child));
-                });
-                newElement.content = JSON.stringify(content, null, 2);
-            }
-            return newElement;
-        };
+      findAndDelete(draft.pageContent, action.payload.elementId);
 
-        const findAndDuplicate = (elements: Element[]): boolean => {
-            for (let i = 0; i < elements.length; i++) {
-                const element = elements[i];
-                if (element.id === elementId) {
-                    const newElement = deepCopyAndAssignNewIds(element);
-                    elements.splice(i + 1, 0, newElement);
-                    newElementId = newElement.id;
-                    return true;
-                }
-                if (element.children && findAndDuplicate(element.children)) {
-                    return true;
-                }
-                if (element.type === 'columns') {
-                    try {
-                        const content = JSON.parse(element.content);
-                        for (const col of content.columns) {
-                            if (findAndDuplicate(col.children)) {
-                                element.content = JSON.stringify(content, null, 2);
-                                return true;
-                            }
-                        }
-                    } catch (e) {}
-                }
-            }
-            return false;
-        };
+      if (draft.selectedElementId === action.payload.elementId) {
+        draft.selectedElementId = null;
+      }
+      addHistoryEntry();
+      break;
+    }
+    case 'DUPLICATE_ELEMENT': {
+        const { elementId } = action.payload;
+        let newElementId: string | null = null;
 
-        findAndDuplicate(draft.pageContent);
-        if (newElementId) {
-            draft.selectedElementId = newElementId;
-        }
-        addHistoryEntry();
-        break;
-    }
-    case 'SET_SELECTED_ELEMENT': {
-      draft.selectedElementId = action.payload;
-      break;
-    }
-    case 'SET_PAGE_STYLES': {
-      draft.pageStyles = { ...draft.pageStyles, ...action.payload };
-      break;
-    }
-    case 'ADD_HISTORY': {
-      addHistoryEntry();
-      break;
-    }
-    case 'UNDO': {
-      if (draft.historyIndex > 0) {
-        draft.historyIndex--;
-        draft.pageContent = draft.history[draft.historyIndex].content;
-        draft.selectedElementId = null;
-      }
-      break;
-    }
-    case 'REDO': {
-      if (draft.historyIndex < draft.history.length - 1) {
-        draft.historyIndex++;
-        draft.pageContent = draft.history[draft.historyIndex].content;
-        draft.selectedElementId = null;
-      }
-      break;
-    }
-  }
+        const deepCopyAndAssignNewIds = (element: Element): Element => {
+            const newElement = JSON.parse(JSON.stringify(element));
+            newElement.id = getUniqueId(newElement.type as ElementType);
+            if (newElement.children && newElement.children.length > 0) {
+                newElement.children = newElement.children.map((child: Element) => deepCopyAndAssignNewIds(child));
+            }
+            if (newElement.type === 'columns') {
+                const content = JSON.parse(newElement.content);
+                content.columns.forEach((col: { id: string, children: Element[] }) => {
+                    col.id = getUniqueId('column_internal');
+                    col.children = col.children.map((child: Element) => deepCopyAndAssignNewIds(child));
+                });
+                newElement.content = JSON.stringify(content, null, 2);
+            }
+            return newElement;
+        };
+
+        const findAndDuplicate = (elements: Element[]): boolean => {
+            for (let i = 0; i < elements.length; i++) {
+                const element = elements[i];
+                if (element.id === elementId) {
+                    const newElement = deepCopyAndAssignNewIds(element);
+                    elements.splice(i + 1, 0, newElement);
+                    newElementId = newElement.id;
+                    return true;
+                }
+                if (element.children && findAndDuplicate(element.children)) {
+                    return true;
+                }
+                if (element.type === 'columns') {
+                    try {
+                        const content = JSON.parse(element.content);
+                        for (const col of content.columns) {
+                            if (findAndDuplicate(col.children)) {
+                                element.content = JSON.stringify(content, null, 2);
+                                return true;
+                            }
+                        }
+                    } catch (e) {}
+                }
+            }
+            return false;
+        };
+
+        findAndDuplicate(draft.pageContent);
+        if (newElementId) {
+            draft.selectedElementId = newElementId;
+        }
+        addHistoryEntry();
+        break;
+    }
+    case 'SET_SELECTED_ELEMENT': {
+      draft.selectedElementId = action.payload;
+      break;
+    }
+    case 'SET_PAGE_STYLES': {
+      draft.pageStyles = { ...draft.pageStyles, ...action.payload };
+      break;
+    }
+    case 'ADD_HISTORY': {
+      addHistoryEntry();
+      break;
+    }
+    case 'UNDO': {
+      if (draft.historyIndex > 0) {
+        draft.historyIndex--;
+        draft.pageContent = JSON.parse(JSON.stringify(draft.history[draft.historyIndex].content));
+        draft.selectedElementId = null;
+      }
+      break;
+    }
+    case 'REDO': {
+      if (draft.historyIndex < draft.history.length - 1) {
+        draft.historyIndex++;
+        draft.pageContent = JSON.parse(JSON.stringify(draft.history[draft.historyIndex].content));
+        draft.selectedElementId = null;
+      }
+      break;
+    }
+  }
 });
 
 const createNewElement = (type: ElementType): Element | Element[] => {
-    const id = getUniqueId(type);
-    const defaultStyles = { desktop: { default: {}, hover: {} }, tablet: { default: {}, hover: {} }, mobile: { default: {}, hover: {} } };
-    const baseElement: Omit<Element, 'id'> & { type: ElementType } = { type, styles: JSON.parse(JSON.stringify(defaultStyles)), children: [] };
-    
-    switch(type) {
-        case 'section': baseElement.styles.desktop.default = { minHeight: '100px', width: '100%', padding: '20px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px' }; break;
-        case 'box': baseElement.styles.desktop.default = { minHeight: '100px', width: '100%', padding: '20px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '16px' }; break;
-        case 'card': baseElement.styles.desktop.default = { width: '100%', padding: '20px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '16px', backgroundColor: '#ffffff', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)', borderRadius: '12px' }; break;
-        case 'video-right-section':
-            baseElement.name = "Video Right Section";
-            baseElement.content = JSON.stringify({ videoUrl: 'https://www.youtube.com/embed/dQw4w9WgXcQ' });
-            baseElement.styles.desktop.default = { width: '100%', padding: '20px', display: 'flex', gap: '20px', alignItems: 'stretch' };
-            break;
-        case 'video-left-section':
-            baseElement.name = "Video Left Section";
-            baseElement.content = JSON.stringify({ videoUrl: 'https://www.youtube.com/embed/dQw4w9WgXcQ' });
-            baseElement.styles.desktop.default = { width: '100%', padding: '20px', display: 'flex', gap: '20px', alignItems: 'stretch' };
-            break;
-        case 'right-image-section':
-            baseElement.name = 'Image Right Section';
-            baseElement.content = JSON.stringify({ imageSrc: 'https://placehold.co/600x400' });
-            baseElement.styles.desktop.default = { width: '100%', padding: '20px', display: 'flex', gap: '20px', alignItems: 'stretch' };
-            break;
-        case 'left-image-section':
-            baseElement.name = 'Image Left Section';
-            baseElement.content = JSON.stringify({ imageSrc: 'https://placehold.co/600x400' });
-            baseElement.styles.desktop.default = { width: '100%', padding: '20px', display: 'flex', gap: '20px', alignItems: 'stretch' };
-            break;
-        case 'horizontal-scroll':
-            baseElement.name = 'Horizontal Scroll';
-            baseElement.styles.desktop.default = { width: '100%', maxWidth: '100%', display: 'grid', gridAutoFlow: 'column', padding: '20px 0', position: 'relative' };
-            baseElement.children = [
-                createNewElement('preview-card') as Element,
-                createNewElement('preview-card') as Element,
-            ];
-            break;
-        case 'auto-scroll':
-            baseElement.name = 'Auto Scroll';
-            baseElement.styles.desktop.default = { width: '100%', maxWidth: '100%', position: 'relative', overflow: 'hidden', display: 'grid' };
-            baseElement.content = JSON.stringify({ delay: 3000 });
-            baseElement.children = [
-                createNewElement('preview-card') as Element,
-                createNewElement('preview-card') as Element,
-                createNewElement('preview-card') as Element,
-                createNewElement('preview-card') as Element,
-            ];
-            break;
-        case 'single-auto-scroll':
-            baseElement.name = 'Single Auto Scroll';
-            baseElement.styles.desktop.default = { width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center', position: 'relative', minHeight: '400px' };
-            baseElement.content = JSON.stringify({ delay: 3000, transition: 'fade' });
-            baseElement.children = [
-                createNewElement('detail-card') as Element,
-                createNewElement('detail-card') as Element,
-                createNewElement('profile-card') as Element,
-            ];
-            break;
-        case 'image-carousel':
-            baseElement.name = 'Image Carousel';
-            baseElement.styles.desktop.default = { width: '100%', height: '500px', position: 'relative', overflow: 'hidden'};
-            baseElement.content = JSON.stringify({ delay: 3000 });
-            baseElement.children = [
-                { ...(createNewElement('image') as Element), styles: { desktop: { default: { width: '100%', height: '100%', objectFit: 'cover' }}}},
-                { ...(createNewElement('image') as Element), content: 'https://placehold.co/1200x500/1e3a8a/ffffff', styles: { desktop: { default: { width: '100%', height: '100%', objectFit: 'cover' }}}},
-            ];
-            break;
-        case 'accordion':
-            baseElement.name = 'Accordion';
-            baseElement.content = JSON.stringify({ title: 'Click to Expand' });
-            baseElement.styles.desktop.default = { width: '100%', border: '1px solid #e5e7eb', borderRadius: '8px', color: '#111827' };
-            break;
-        case 'feature-grid':
-            baseElement.name = "Feature Grid Section";
-            baseElement.styles.desktop.default = { width: '100%', padding: '40px 20px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '32px' };
-            baseElement.content = JSON.stringify({ columnCount: 3 });
+    const id = getUniqueId(type);
+    const defaultStyles = { desktop: { default: {}, hover: {} }, tablet: { default: {}, hover: {} }, mobile: { default: {}, hover: {} } };
+    const baseElement: Omit<Element, 'id'> & { type: ElementType } = { type, styles: JSON.parse(JSON.stringify(defaultStyles)), children: [] };
+    
+    switch(type) {
+        case 'section': baseElement.styles.desktop.default = { minHeight: '100px', width: '100%', padding: '20px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px' }; break;
+        case 'box': baseElement.styles.desktop.default = { minHeight: '100px', width: '100%', padding: '20px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '16px' }; break;
+        case 'card': baseElement.styles.desktop.default = { width: '100%', padding: '20px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '16px', backgroundColor: '#ffffff', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)', borderRadius: '12px' }; break;
+        case 'video-right-section':
+            baseElement.name = "Video Right Section";
+            baseElement.content = JSON.stringify({ videoUrl: 'https://www.youtube.com/embed/dQw4w9WgXcQ' });
+            baseElement.styles.desktop.default = { width: '100%', padding: '20px', display: 'flex', gap: '20px', alignItems: 'stretch' };
+            break;
+        case 'video-left-section':
+            baseElement.name = "Video Left Section";
+            baseElement.content = JSON.stringify({ videoUrl: 'https://www.youtube.com/embed/dQw4w9WgXcQ' });
+            baseElement.styles.desktop.default = { width: '100%', padding: '20px', display: 'flex', gap: '20px', alignItems: 'stretch' };
+            break;
+        case 'right-image-section':
+            baseElement.name = 'Image Right Section';
+            baseElement.content = JSON.stringify({ imageSrc: 'https://placehold.co/600x400' });
+            baseElement.styles.desktop.default = { width: '100%', padding: '20px', display: 'flex', gap: '20px', alignItems: 'stretch' };
+            break;
+        case 'left-image-section':
+            baseElement.name = 'Image Left Section';
+            baseElement.content = JSON.stringify({ imageSrc: 'https://placehold.co/600x400' });
+            baseElement.styles.desktop.default = { width: '100%', padding: '20px', display: 'flex', gap: '20px', alignItems: 'stretch' };
+            break;
+        case 'horizontal-scroll':
+            baseElement.name = 'Horizontal Scroll';
+            baseElement.styles.desktop.default = { width: '100%', maxWidth: '100%', display: 'grid', gridAutoFlow: 'column', padding: '20px 0', position: 'relative' };
+            baseElement.children = [
+                createNewElement('preview-card') as Element,
+                createNewElement('preview-card') as Element,
+            ];
+            break;
+        case 'auto-scroll':
+            baseElement.name = 'Auto Scroll';
+            baseElement.styles.desktop.default = { width: '100%', maxWidth: '100%', position: 'relative', overflow: 'hidden', display: 'grid' };
+            baseElement.content = JSON.stringify({ delay: 3000 });
+            baseElement.children = [
+                createNewElement('preview-card') as Element,
+                createNewElement('preview-card') as Element,
+                createNewElement('preview-card') as Element,
+                createNewElement('preview-card') as Element,
+            ];
+            break;
+        case 'single-auto-scroll':
+            baseElement.name = 'Single Auto Scroll';
+            baseElement.styles.desktop.default = { width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center', position: 'relative', minHeight: '400px' };
+            baseElement.content = JSON.stringify({ delay: 3000, transition: 'fade' });
+            baseElement.children = [
+                createNewElement('detail-card') as Element,
+                createNewElement('detail-card') as Element,
+                createNewElement('profile-card') as Element,
+            ];
+            break;
+        case 'image-carousel':
+            baseElement.name = 'Image Carousel';
+            baseElement.styles.desktop.default = { width: '100%', height: '500px', position: 'relative', overflow: 'hidden'};
+            baseElement.content = JSON.stringify({ delay: 3000 });
+            baseElement.children = [
+                { ...(createNewElement('image') as Element), styles: { desktop: { default: { width: '100%', height: '100%', objectFit: 'cover' }}}},
+                { ...(createNewElement('image') as Element), content: 'https://placehold.co/1200x500/1e3a8a/ffffff', styles: { desktop: { default: { width: '100%', height: '100%', objectFit: 'cover' }}}},
+            ];
+            break;
+        case 'accordion':
+            baseElement.name = 'Accordion';
+            baseElement.content = JSON.stringify({ title: 'Click to Expand' });
+            baseElement.styles.desktop.default = { width: '100%', border: '1px solid #e5e7eb', borderRadius: '8px', color: '#111827' };
+            break;
+        case 'feature-grid':
+            baseElement.name = "Feature Grid Section";
+            baseElement.styles.desktop.default = { width: '100%', padding: '40px 20px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '32px' };
+            baseElement.content = JSON.stringify({ columnCount: 3 });
 
-            const gridContainer = createNewElement('box') as Element;
-            gridContainer.name = "Features Container";
-            gridContainer.styles.desktop.default = {
-                width: '100%',
-                display: 'grid',
-                gridTemplateColumns: 'repeat(3, 1fr)',
-                gap: '20px'
-            };
-            gridContainer.children = [
-                createNewElement('feature-block') as Element,
-                createNewElement('feature-block') as Element,
-                createNewElement('feature-block') as Element,
-            ];
+            const gridContainer = createNewElement('box') as Element;
+            gridContainer.name = "Features Container";
+            gridContainer.styles.desktop.default = {
+                width: '100%',
+                display: 'grid',
+                gridTemplateColumns: 'repeat(3, 1fr)',
+                gap: '20px'
+            };
+            gridContainer.children = [
+                createNewElement('feature-block') as Element,
+                createNewElement('feature-block') as Element,
+                createNewElement('feature-block') as Element,
+            ];
 
-            baseElement.children = [
-                { ...(createNewElement('heading') as Element), content: '<h2>Our Amazing Features</h2>' },
-                gridContainer
-            ];
-            break;
-        case 'feature-block':
-            baseElement.content = JSON.stringify({ icon: 'Star', title: 'Feature Title', text: 'Describe the feature in a few words.'});
-            baseElement.styles.desktop.default = { display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: '12px', padding: '24px', borderRadius: '8px', border: '1px solid #e5e7eb' };
-            break;
-        case 'step-block':
-          baseElement.name = 'Step Block';
-          baseElement.styles.desktop.default = {
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            textAlign: 'center',
-            gap: '12px',
-            padding: '0 16px',
-            flex: '0 1 300px',
-            minWidth: '200px',
-          };
-          baseElement.children = [
-            {
-              ...(createNewElement('paragraph') as Element),
-              content: '<p>01</p>',
-              name: 'Step Number',
-              styles: {
-                ...JSON.parse(JSON.stringify(defaultStyles)),
-                desktop: { default: { display: 'flex', alignItems: 'center', justifyContent: 'center', width: '48px', height: '48px', borderRadius: '50%', backgroundColor: '#eef2ff', color: '#4338ca', fontWeight: 'bold', fontSize: '1.25rem', marginBottom: '16px' } }
-              }
-            },
-            {
-              ...(createNewElement('heading') as Element),
-              content: '<h3>Step Title</h3>',
-              name: 'Step Title',
-              styles: {
-                ...JSON.parse(JSON.stringify(defaultStyles)),
-                desktop: { default: { fontSize: '1.25rem', fontWeight: 'bold', color: '#111827' } }
-              }
-            },
-            {
-              ...(createNewElement('paragraph') as Element),
-              content: '<p>Explain the step here in a few words.</p>',
-              name: 'Step Description',
-              styles: {
-                ...JSON.parse(JSON.stringify(defaultStyles)),
-                desktop: { default: { fontSize: '1rem', color: '#6b7280' } }
-              }
-            }
-          ];
-          break;
-        case 'step-connector':
-            baseElement.name = 'Step Connector';
-            baseElement.styles.desktop.default = {
-                flex: '1',
-                alignSelf: 'flex-start',
-                marginTop: '24px',
-                minWidth: '20px',
-                borderTop: '2px solid #e5e7eb'
-            }
-            break;
-        case 'steps':
-          baseElement.name = 'Steps Section';
-          baseElement.content = JSON.stringify({ connectorType: 'solid' });
-          baseElement.styles.desktop.default = { width: '100%', padding: '40px 20px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '32px' };
+            baseElement.children = [
+                { ...(createNewElement('heading') as Element), content: '<h2>Our Amazing Features</h2>' },
+                gridContainer
+            ];
+            break;
+        case 'feature-block':
+            baseElement.content = JSON.stringify({ icon: 'Star', title: 'Feature Title', text: 'Describe the feature in a few words.'});
+            baseElement.styles.desktop.default = { display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: '12px', padding: '24px', borderRadius: '8px', border: '1px solid #e5e7eb' };
+            break;
+        case 'step-block':
+        baseElement.name = 'Step Block';
+        baseElement.styles.desktop.default = {
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            textAlign: 'center',
+            gap: '12px',
+            padding: '0 16px',
+            flex: '0 1 300px',
+            minWidth: '200px',
+        };
+        baseElement.children = [
+            {
+              ...(createNewElement('paragraph') as Element),
+              content: '<p>01</p>',
+              name: 'Step Number',
+              styles: {
+                ...JSON.parse(JSON.stringify(defaultStyles)),
+                desktop: { default: { display: 'flex', alignItems: 'center', justifyContent: 'center', width: '48px', height: '48px', borderRadius: '50%', backgroundColor: '#eef2ff', color: '#4338ca', fontWeight: 'bold', fontSize: '1.25rem', marginBottom: '16px' } }
+              }
+            },
+            {
+              ...(createNewElement('heading') as Element),
+              content: '<h3>Step Title</h3>',
+              name: 'Step Title',
+              styles: {
+                ...JSON.parse(JSON.stringify(defaultStyles)),
+                desktop: { default: { fontSize: '1.25rem', fontWeight: 'bold', color: '#111827' } }
+              }
+            },
+            {
+              ...(createNewElement('paragraph') as Element),
+              content: '<p>Explain the step here in a few words.</p>',
+              name: 'Step Description',
+              styles: {
+                ...JSON.parse(JSON.stringify(defaultStyles)),
+                desktop: { default: { fontSize: '1rem', color: '#6b7280' } }
+              }
+            }
+        ];
+        break;
+        case 'step-connector':
+            baseElement.name = 'Step Connector';
+            baseElement.styles.desktop.default = {
+                flex: '1',
+                alignSelf: 'flex-start',
+                marginTop: '24px',
+                minWidth: '20px',
+                borderTop: '2px solid #e5e7eb'
+            }
+            break;
+        case 'steps':
+        baseElement.name = 'Steps Section';
+        baseElement.content = JSON.stringify({ connectorType: 'solid' });
+        baseElement.styles.desktop.default = { width: '100%', padding: '40px 20px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '32px' };
 
-          const createStep = (stepNumber: number): Element => {
-            const step = createNewElement('step-block') as Element;
-            if (step.children && step.children[0]) {
-              step.children[0].content = `<p>${String(stepNumber).padStart(2, '0')}</p>`;
-            }
-            return step;
-          }
+        const createStep = (stepNumber: number): Element => {
+          const step = createNewElement('step-block') as Element;
+          if (step.children && step.children[0]) {
+            step.children[0].content = `<p>${String(stepNumber).padStart(2, '0')}</p>`;
+          }
+          return step;
+        }
 
-          const stepsContainer = createNewElement('box') as Element;
-          stepsContainer.name = "Steps Container";
-          stepsContainer.styles.desktop.default = { width: '100%', display: 'flex', flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'center' };
-          stepsContainer.children = [
-              createStep(1),
-              createNewElement('step-connector') as Element,
-              createStep(2),
-              createNewElement('step-connector') as Element,
-              createStep(3),
-          ];
+        const stepsContainer = createNewElement('box') as Element;
+        stepsContainer.name = "Steps Container";
+        stepsContainer.styles.desktop.default = { width: '100%', display: 'flex', flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'center' };
+        stepsContainer.children = [
+            createStep(1),
+            createNewElement('step-connector') as Element,
+            createStep(2),
+            createNewElement('step-connector') as Element,
+            createStep(3),
+        ];
 
-          baseElement.children = [
-            { ...(createNewElement('heading') as Element), content: '<h2>Get Started in 3 Easy Steps</h2>' },
-            stepsContainer
-          ];
-          break;
-        case 'testimonial':
-            baseElement.content = JSON.stringify({ avatar: 'https://placehold.co/100x100', quote: 'This is an amazing product!', name: 'Jane Doe', title: 'CEO, Company' });
-            baseElement.styles.desktop.default = { width: '100%', maxWidth: '600px', backgroundColor: '#ffffff', color: '#111827', padding: '24px', borderRadius: '12px', display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: '16px' };
-            break;
-        case 'faq':
-            baseElement.content = JSON.stringify({ items: [{id: getUniqueId('faq-item'), question: 'Is this a question?', answer: 'Yes, and this is the answer.', questionColor: '#111827', answerColor: '#4B5563'}]});
-            baseElement.styles.desktop.default = { width: '100%', maxWidth: '700px' };
-            break;
-        case 'preview-card':
-            baseElement.type = 'card';
-            baseElement.name = "Preview Card";
-            baseElement.styles.desktop.default = { width: '350px', flexShrink: 0, alignSelf: 'center', backgroundColor: '#ffffff', borderRadius: '12px', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)', overflow: 'hidden', color: '#111827', padding: '0px', alignItems: 'flex-start' };
-            baseElement.children = [
-                {...createNewElement('image') as Element, content: 'https://placehold.co/400x250', styles: {desktop: {default: {width: '100%', borderRadius: '0px', alignSelf: 'stretch'}}}},
-                {...createNewElement('box') as Element, children: [
-                    {...createNewElement('heading') as Element, content: '<h3>Preview Title</h3>'},
-                    {...createNewElement('paragraph') as Element, content: '<p>This is a short description for the preview card.</p>'}
-                ], styles: {desktop: {default: {padding: '16px'}}}}
-            ]
-            break;
-        case 'detail-card':
-            baseElement.type = 'card';
-            baseElement.name = "Detail Card";
-            baseElement.styles.desktop.default = { width: '350px', alignSelf: 'center', backgroundColor: '#ffffff', borderRadius: '12px', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)', padding: '24px', color: '#111827' };
-            baseElement.children = [
-                {...createNewElement('heading') as Element, content: '<h3>Detail Card</h3>'},
-                {...createNewElement('paragraph') as Element, content: '<p>More information here...</p>'},
-            ];
-            break;
-        case 'profile-card':
-            baseElement.styles.desktop.default = { display: 'flex', alignItems: 'center', gap: '16px', width: '350px', alignSelf: 'center', backgroundColor: '#ffffff', borderRadius: '12px', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)', padding: '24px', color: '#111827' };
-            baseElement.content = JSON.stringify({ profileImage: 'https://placehold.co/100x100', name: 'Jane Doe', title: 'UI/UX Designer', handle: '@janedoe' });
-            break;
-        case 'columns':
-            baseElement.styles.desktop.default = { width: '100%', padding: '20px', display: 'flex', gap: '20px' };
-            baseElement.content = JSON.stringify({ columns: [{ id: getUniqueId('column_internal'), children: [] }, { id: getUniqueId('column_internal'), children: [] }] }, null, 2);
-            break;
-        case 'heading': baseElement.content = '<h1>Enter Heading Text...</h1>'; baseElement.styles.desktop.default = { fontSize: '2.25rem', fontWeight: 'bold', color: 'var(--text)', width: '100%', textAlign: 'center' }; break;
-        case 'paragraph': baseElement.content = '<p>Enter your paragraph text here.</p>'; baseElement.styles.desktop.default = { fontSize: '1rem', color: '#4b5563', lineHeight: 1.6, width: '100%', textAlign: 'center' }; break;
-        case 'gallery':
-            baseElement.content = JSON.stringify({ columns: 3, images: ['https://placehold.co/600x400/4f46e5/ffffff', 'https://placehold.co/600x400/1e3a8a/ffffff', 'https://placehold.co/600x400/3730a3/ffffff'] }, null, 2);
-            baseElement.styles.desktop.default = { width: '100%', padding: '20px', display: 'grid', gap: '16px' };
-            break;
-        case 'footer':
-            baseElement.content = JSON.stringify({ text: `© ${new Date().getFullYear()} Your Company. All rights reserved.` }, null, 2);
-            baseElement.styles.desktop.default = { width: '100%', padding: '40px 20px', backgroundColor: '#111827', color: '#9ca3af', textAlign: 'center' };
-            break;
-        case 'navbar':
-            baseElement.content = JSON.stringify({ logo: { type: 'image', src: "https://placehold.co/100x40/FFFFFF/1a202c?text=Logo", text: "My Site", alt: "Logo" }, links: [{ id: getUniqueId('link'), label: "Home", href: "#" }], cta: { label: "Sign Up", href: "#", enabled: true }}, null, 2);
-            baseElement.styles.desktop.default = { width: '100%', backgroundColor: "#fff", color: "#111827", padding: "1rem 2rem", boxShadow: '0 2px 4px rgba(0,0,0,0.05)' };
-            break;
-        case 'image':
-            baseElement.content = 'https://placehold.co/600x400';
-            baseElement.styles.desktop.default = { width: 'auto', maxWidth: '100%', height: 'auto', borderRadius: '8px', alignSelf: 'center' };
-            break;
-        case 'video':
-            baseElement.content = 'https://www.youtube.com/embed/dQw4w9WgXcQ';
-            baseElement.styles.desktop.default = { width: '100%', aspectRatio: '16 / 9' };
-            break;
-        case 'divider':
-            baseElement.styles.desktop.default = { width: '100%', height: '1px', backgroundColor: '#e5e7eb', margin: '16px 0' };
-            break;
-        case 'contact-form':
-            baseElement.content = JSON.stringify({ fields: [{label: 'Name', type: 'text'}, {label: 'Email', type: 'email'}], buttonText: 'Submit' });
-            baseElement.styles.desktop.default = { width: '100%', maxWidth: '500px', display: 'flex', flexDirection: 'column', gap: '16px', color: '#111827' };
-            break;
-        case 'button':
-            baseElement.content = 'Click Me';
-            baseElement.styles.desktop.default = { backgroundColor: 'var(--primary)', color: '#fff', padding: '10px 20px', borderRadius: '8px', border: 'none', cursor: 'pointer', alignSelf: 'center' };
-            baseElement.styles.desktop.hover = { backgroundColor: '#4338ca' };
-            break;
+        baseElement.children = [
+            { ...(createNewElement('heading') as Element), content: '<h2>Get Started in 3 Easy Steps</h2>' },
+            stepsContainer
+        ];
+        break;
+        case 'testimonial':
+            baseElement.content = JSON.stringify({ avatar: 'https://placehold.co/100x100', quote: 'This is an amazing product!', name: 'Jane Doe', title: 'CEO, Company' });
+            baseElement.styles.desktop.default = { width: '100%', maxWidth: '600px', backgroundColor: '#ffffff', color: '#111827', padding: '24px', borderRadius: '12px', display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: '16px' };
+            break;
+        case 'faq':
+            baseElement.content = JSON.stringify({ items: [{id: getUniqueId('faq-item'), question: 'Is this a question?', answer: 'Yes, and this is the answer.', questionColor: '#111827', answerColor: '#4B5563'}]});
+            baseElement.styles.desktop.default = { width: '100%', maxWidth: '700px' };
+            break;
+        case 'preview-card':
+            baseElement.type = 'card';
+            baseElement.name = "Preview Card";
+            baseElement.styles.desktop.default = { width: '350px', flexShrink: 0, alignSelf: 'center', backgroundColor: '#ffffff', borderRadius: '12px', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)', overflow: 'hidden', color: '#111827', padding: '0px', alignItems: 'flex-start' };
+            baseElement.children = [
+                {...createNewElement('image') as Element, content: 'https://placehold.co/400x250', styles: {desktop: {default: {width: '100%', borderRadius: '0px', alignSelf: 'stretch'}}}},
+                {...createNewElement('box') as Element, children: [
+                    {...createNewElement('heading') as Element, content: '<h3>Preview Title</h3>'},
+                    {...createNewElement('paragraph') as Element, content: '<p>This is a short description for the preview card.</p>'}
+                ], styles: {desktop: {default: {padding: '16px'}}}}
+            ]
+            break;
+        case 'detail-card':
+            baseElement.type = 'card';
+            baseElement.name = "Detail Card";
+            baseElement.styles.desktop.default = { width: '350px', alignSelf: 'center', backgroundColor: '#ffffff', borderRadius: '12px', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)', padding: '24px', color: '#111827' };
+            baseElement.children = [
+                {...createNewElement('heading') as Element, content: '<h3>Detail Card</h3>'},
+                {...createNewElement('paragraph') as Element, content: '<p>More information here...</p>'},
+            ];
+            break;
+        case 'profile-card':
+            baseElement.styles.desktop.default = { display: 'flex', alignItems: 'center', gap: '16px', width: '350px', alignSelf: 'center', backgroundColor: '#ffffff', borderRadius: '12px', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)', padding: '24px', color: '#111827' };
+            baseElement.content = JSON.stringify({ profileImage: 'https://placehold.co/100x100', name: 'Jane Doe', title: 'UI/UX Designer', handle: '@janedoe' });
+            break;
+        case 'columns':
+            baseElement.styles.desktop.default = { width: '100%', padding: '20px', display: 'flex', gap: '20px' };
+            baseElement.content = JSON.stringify({ columns: [{ id: getUniqueId('column_internal'), children: [] }, { id: getUniqueId('column_internal'), children: [] }] }, null, 2);
+            break;
+        case 'heading': baseElement.content = '<h1>Enter Heading Text...</h1>'; baseElement.styles.desktop.default = { fontSize: '2.25rem', fontWeight: 'bold', color: 'var(--text)', width: '100%', textAlign: 'center' }; break;
+        case 'paragraph': baseElement.content = '<p>Enter your paragraph text here.</p>'; baseElement.styles.desktop.default = { fontSize: '1rem', color: '#4b5563', lineHeight: 1.6, width: '100%', textAlign: 'center' }; break;
+        case 'gallery':
+            baseElement.content = JSON.stringify({ columns: 3, images: ['https://placehold.co/600x400/4f46e5/ffffff', 'https://placehold.co/600x400/1e3a8a/ffffff', 'https://placehold.co/600x400/3730a3/ffffff'] }, null, 2);
+            baseElement.styles.desktop.default = { width: '100%', padding: '20px', display: 'grid', gap: '16px' };
+            break;
+        case 'footer':
+            baseElement.content = JSON.stringify({ text: `© ${new Date().getFullYear()} Your Company. All rights reserved.` }, null, 2);
+            baseElement.styles.desktop.default = { width: '100%', padding: '40px 20px', backgroundColor: '#111827', color: '#9ca3af', textAlign: 'center' };
+            break;
+        case 'navbar':
+            baseElement.content = JSON.stringify({ logo: { type: 'image', src: "https://placehold.co/100x40/FFFFFF/1a202c?text=Logo", text: "My Site", alt: "Logo" }, links: [{ id: getUniqueId('link'), label: "Home", href: "#" }], cta: { label: "Sign Up", href: "#", enabled: true }}, null, 2);
+            baseElement.styles.desktop.default = { width: '100%', backgroundColor: "#fff", color: "#111827", padding: "1rem 2rem", boxShadow: '0 2px 4px rgba(0,0,0,0.05)' };
+            break;
+        case 'image':
+            baseElement.content = 'https://placehold.co/600x400';
+            baseElement.styles.desktop.default = { width: 'auto', maxWidth: '100%', height: 'auto', borderRadius: '8px', alignSelf: 'center' };
+            break;
+        case 'video':
+            baseElement.content = 'https://www.youtube.com/embed/dQw4w9WgXcQ';
+            baseElement.styles.desktop.default = { width: '100%', aspectRatio: '16 / 9' };
+            break;
+        case 'divider':
+            baseElement.styles.desktop.default = { width: '100%', height: '1px', backgroundColor: '#e5e7eb', margin: '16px 0' };
+            break;
+        case 'contact-form':
+            baseElement.content = JSON.stringify({ fields: [{label: 'Name', type: 'text'}, {label: 'Email', type: 'email'}], buttonText: 'Submit' });
+            baseElement.styles.desktop.default = { width: '100%', maxWidth: '500px', display: 'flex', flexDirection: 'column', gap: '16px', color: '#111827' };
+            break;
+        case 'button':
+            baseElement.content = 'Click Me';
+            baseElement.styles.desktop.default = { backgroundColor: 'var(--primary)', color: '#fff', padding: '10px 20px', borderRadius: '8px', border: 'none', cursor: 'pointer', alignSelf: 'center' };
+            baseElement.styles.desktop.hover = { backgroundColor: '#4338ca' };
+            break;
         case 'hero':
-            baseElement.name = 'Hero Section';
-            baseElement.styles.desktop.default = { width: '100%', height: '500px', position: 'relative', display: 'flex', color: '#ffffff'};
-            baseElement.content = JSON.stringify({
-                backgroundType: 'image',
-                backgroundImageUrl: 'https://placehold.co/1200x500/4f46e5/ffffff',
-                backgroundVideoUrl: '',
-                contentPosition: 'center-middle'
-            });
-            baseElement.children = [
-                {...(createNewElement('heading') as Element), content: '<h1>Your Big Idea</h1>', styles: {desktop:{default:{color: '#ffffff', fontSize: '3rem'}}}},
-                {...(createNewElement('paragraph') as Element), content: '<p>Explain it in a few words.</p>', styles: {desktop:{default:{color: '#eeeeee', maxWidth: '600px', fontSize: '1.25rem'}}}},
-                {...(createNewElement('button') as Element), content: 'Get Started', styles: {desktop:{default:{backgroundColor: '#ffffff', color: 'var(--primary)', alignSelf: 'center'}}}},
-            ];
-            break;
+            baseElement.name = 'Hero Section';
+            baseElement.styles.desktop.default = { width: '100%', height: '500px', position: 'relative', display: 'flex', color: '#ffffff'};
+            baseElement.content = JSON.stringify({
+                backgroundType: 'image',
+                backgroundImageUrl: 'https://placehold.co/1200x500/4f46e5/ffffff',
+                backgroundVideoUrl: '',
+                contentPosition: 'center-middle'
+            });
+            baseElement.children = [
+                {...(createNewElement('heading') as Element), content: '<h1>Your Big Idea</h1>', styles: {desktop:{default:{color: '#ffffff', fontSize: '3rem'}}}},
+                {...(createNewElement('paragraph') as Element), content: '<p>Explain it in a few words.</p>', styles: {desktop:{default:{color: '#eeeeee', maxWidth: '600px', fontSize: '1.25rem'}}}},
+                {...(createNewElement('button') as Element), content: 'Get Started', styles: {desktop:{default:{backgroundColor: '#ffffff', color: 'var(--primary)', alignSelf: 'center'}}}},
+            ];
+            break;
         case 'hero-slider':
-            baseElement.name = 'Hero Slider';
-            baseElement.styles.desktop.default = { width: '100%', height: '500px', position: 'relative', overflow: 'hidden', color: '#ffffff'};
-            baseElement.content = JSON.stringify({ delay: 4000 });
-            baseElement.children = [
-                createNewElement('hero') as Element,
-                createNewElement('hero') as Element,
-            ];
-            break;
-        case 'ordered-list': baseElement.content = `<ol><li>List Item 1</li><li>List Item 2</li></ol>`; baseElement.styles.desktop.default = { paddingLeft: '40px', color: '#4b5563', width: '100%' }; break;
-        case 'unordered-list': baseElement.content = `<ul><li>List Item 1</li><li>List Item 2</li></ul>`; baseElement.styles.desktop.default = { paddingLeft: '40px', color: '#4b5563', width: '100%' }; break;
-    }
-    return { ...baseElement, id };
+            baseElement.name = 'Hero Slider';
+            baseElement.styles.desktop.default = { width: '100%', height: '500px', position: 'relative', overflow: 'hidden', color: '#ffffff'};
+            baseElement.content = JSON.stringify({ delay: 4000 });
+            baseElement.children = [
+                createNewElement('hero') as Element,
+                createNewElement('hero') as Element,
+            ];
+            break;
+        case 'ordered-list': baseElement.content = `<ol><li>List Item 1</li><li>List Item 2</li></ol>`; baseElement.styles.desktop.default = { paddingLeft: '40px', color: '#4b5563', width: '100%' }; break;
+        case 'unordered-list': baseElement.content = `<ul><li>List Item 1</li><li>List Item 2</li></ul>`; baseElement.styles.desktop.default = { paddingLeft: '40px', color: '#4b5563', width: '100%' }; break;
+    }
+    return { ...baseElement, id };
 };
 
 const EditorContext = createContext<{ state: EditorState; dispatch: React.Dispatch<EditorAction> } | null>(null);
@@ -722,6 +753,7 @@ export default function EditorPage() {
   const [activePanel, setActivePanel] = useState<'properties' | 'history' | 'versions'>('properties');
   const [leftSidebarTab, setLeftSidebarTab] = useState<'elements' | 'layers' | 'css'>('elements');
   const [saveStatus, setSaveStatus] = useState<'saved' | 'unsaved' | 'saving' | 'error'>('saved');
+  const [isAiModalOpen, setIsAiModalOpen] = useState(false);
   const initialContentLoaded = useRef(false);
   const hasUnsavedChanges = useRef(false);
 
@@ -767,6 +799,12 @@ export default function EditorPage() {
     
     return () => clearTimeout(handler);
   }, [state.pageContent, state.pageStyles, siteId]);
+
+  const handleAiGenerate = (elements: Element[]) => {
+    if (window.confirm('This will replace your current page content. Are you sure?')) {
+      dispatch({ type: 'SET_PAGE_CONTENT', payload: elements });
+    }
+  };
 
   const findElement = (elements: Element[], elementId: string): Element | null => {
     for (const el of elements) {
@@ -856,6 +894,14 @@ export default function EditorPage() {
             <button onClick={() => dispatch({ type: 'UNDO' })} disabled={state.historyIndex <= 0} className="p-2 rounded-md hover:bg-gray-700 transition-colors disabled:opacity-50" title="Undo"><FaUndo /></button>
             <button onClick={() => dispatch({ type: 'REDO' })} disabled={state.historyIndex >= state.history.length - 1} className="p-2 rounded-md hover:bg-gray-700 transition-colors disabled:opacity-50" title="Redo"><FaRedo /></button>
             <button onClick={handleSaveVersion} className="flex items-center gap-2 px-4 py-2 bg-gray-700 rounded-md hover:bg-gray-600 transition-colors"><Check size={16}/><span>Save Version</span></button>
+            <button
+              onClick={() => setIsAiModalOpen(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-purple-600 rounded-md hover:bg-purple-500 transition-colors"
+              title="Generate Page Layout with AI"
+            >
+              <Sparkles size={16} />
+              <span>AI Generate</span>
+            </button>
             <button onClick={() => {}} className="flex items-center gap-2 px-4 py-2 bg-indigo-600 rounded-md hover:bg-indigo-500 transition-colors"><Sparkles size={16} /><span>Publish</span></button>
           </div>
         </header>
@@ -867,6 +913,11 @@ export default function EditorPage() {
         </div>
 
         {selectedElement && <RichTextToolbar element={selectedElement} />}
+        <AILayoutGeneratorModal
+          isOpen={isAiModalOpen}
+          onClose={() => setIsAiModalOpen(false)}
+          onGenerate={handleAiGenerate}
+        />
       </div>
     </EditorContext.Provider>
   );
@@ -987,6 +1038,31 @@ const LeftPanel = ({ activeTab, setActiveTab }: { activeTab: 'elements' | 'layer
     );
 };
 LeftPanel.displayName = 'LeftPanel';
+
+const DynamicElementStyles = ({ element }: { element: Element }) => {
+    const elementId = element.id.replace(/-/g, '_'); // Sanitize for CSS class
+    const className = `dynamic_element_${elementId}`;
+
+    const generateBreakpointCss = (breakpoint: 'desktop' | 'tablet' | 'mobile', styles: any) => {
+        if (!styles || Object.keys(styles).length === 0) return '';
+        const cssString = Object.entries(styles).map(([key, value]) => {
+            const kebabKey = key.replace(/([A-Z])/g, '-$1').toLowerCase();
+            return `  ${kebabKey}: ${value};`;
+        }).join('\n');
+        
+        if (breakpoint === 'desktop') return `.${className}:hover {\n${cssString}\n}`;
+        if (breakpoint === 'tablet') return `@media (max-width: 1024px) { .${className}:hover {\n${cssString}\n} }`;
+        if (breakpoint === 'mobile') return `@media (max-width: 768px) { .${className}:hover {\n${cssString}\n} }`;
+        return '';
+    };
+
+    const desktopHover = generateBreakpointCss('desktop', element.styles?.desktop?.hover);
+    const tabletHover = generateBreakpointCss('tablet', element.styles?.tablet?.hover);
+    const mobileHover = generateBreakpointCss('mobile', element.styles?.mobile?.hover);
+
+    return <style>{`${desktopHover}\n${tabletHover}\n${mobileHover}`}</style>;
+};
+DynamicElementStyles.displayName = 'DynamicElementStyles';
 
 const LayersPanel = ({ nodes, level = 0 }: { nodes: Element[], level?: number }) => {
     const { state, dispatch } = useEditorContext();
@@ -1190,9 +1266,9 @@ const RenderElement = React.memo(({ element, screenSize, handleDragOver, handleD
         switch (element.type) {
             case 'section':
             case 'box':
-                if (element.name === 'Hero Slide') {
-                    return <HeroSlideComponent element={element} props={props} dropProps={dropProps} renderChildren={renderChildren} />;
-                }
+                if (element.name === 'Hero Slide') {
+                    return <HeroSlideComponent element={element} props={props} dropProps={dropProps} renderChildren={renderChildren} />;
+                }
             case 'card':
             case 'preview-card':
             case 'detail-card':
@@ -1204,12 +1280,12 @@ const RenderElement = React.memo(({ element, screenSize, handleDragOver, handleD
             case 'auto-scroll': return <AutoScrollComponent element={element} props={props} dropProps={dropProps} screenSize={screenSize} handleDragOver={handleDragOver} handleDrop={handleDrop} dropIndicator={dropIndicator} selectedElementId={state.selectedElementId}/>;
             case 'single-auto-scroll': return <SingleAutoScrollComponent element={element} props={props} dropProps={dropProps} selectedElementId={state.selectedElementId} />;
             case 'image-carousel': return <ImageCarouselComponent element={element} props={props} dropProps={dropProps} />;
-            case 'hero-slider': return <HeroSliderComponent element={element} props={props} dropProps={dropProps} selectedElementId={state.selectedElementId} />;
+            case 'hero-slider': return <HeroSliderComponent element={element} props={props} dropProps={dropProps} selectedElementId={state.selectedElementId} />;
             case 'accordion': return <AccordionComponent element={element} props={props} dropProps={dropProps} renderChildren={renderChildren} />;
             case 'feature-block': return <FeatureBlockComponent element={element} props={props}/>;
-           case 'steps': return <StepsComponent element={element} props={props} dropProps={dropProps} renderChildren={renderChildren} />;
-            case 'step-block': return <StepBlockComponent element={element} props={props} dropProps={dropProps} renderChildren={renderChildren} />;
-            case 'step-connector': return <div {...props} />;
+            case 'steps': return <StepsComponent element={element} props={props} dropProps={dropProps} renderChildren={renderChildren} />;
+            case 'step-block': return <StepBlockComponent element={element} props={props} dropProps={dropProps} renderChildren={renderChildren} />;
+            case 'step-connector': return <div {...props} />;
             case 'testimonial': return <TestimonialComponent element={element} props={props}/>;
             case 'faq': return <FaqComponent element={element} props={props} />;
 
@@ -1253,18 +1329,18 @@ const RenderElement = React.memo(({ element, screenSize, handleDragOver, handleD
                 );
             }
             case 'right-image-section': {
-                const content = JSON.parse(element.content || '{}');
-                return (
-                    <section {...props} >
-                        <div className="flex-1 min-h-[100px]" {...dropProps}>
-                            {renderChildren(element.children || [], element.id)}
-                        </div>
-                        <div className="flex-1 flex min-h-[250px]">
-                            <img src={content.imageSrc} alt="" className="w-full h-full object-cover rounded-lg" />
-                        </div>
-                    </section>
-                )
-            }
+                const content = JSON.parse(element.content || '{}');
+                return (
+                    <section {...props} >
+                        <div className="flex-1 min-h-[100px]" {...dropProps}>
+                            {renderChildren(element.children || [], element.id)}
+                        </div>
+                        <div className="flex-1 flex min-h-[250px]">
+                            <img src={content.imageSrc} alt="" className="w-full h-full object-cover rounded-lg" />
+                        </div>
+                    </section>
+                )
+            }
             case 'left-image-section': {
                 const content = JSON.parse(element.content || '{}');
                 return (
@@ -1325,15 +1401,27 @@ const RenderElement = React.memo(({ element, screenSize, handleDragOver, handleD
             default: return <div {...props} className="p-4 bg-gray-200 text-gray-800 rounded">Invalid Element: {element.type}</div>;
         }
     };
-
-    return <ElementWrapper isSelected={isSelected} element={element}>{renderComponent()}</ElementWrapper>;
+    
+    // Wrap the return in a fragment and add the DynamicElementStyles component
+    return (
+        <>
+            <DynamicElementStyles element={element} />
+            <ElementWrapper isSelected={isSelected} element={element}>
+                {renderComponent()}
+            </ElementWrapper>
+        </>
+    );
 });
 RenderElement.displayName = 'RenderElement';
 
 const ElementWrapper = ({ isSelected, children, element }: { isSelected: boolean, children: React.ReactNode, element: Element }) => {
     const { dispatch } = useEditorContext();
+    // Generate the unique class name for hover styles
+    const dynamicClassName = `dynamic_element_${element.id.replace(/-/g, '_')}`;
+
     return (
-        <div data-draggable="true" id={element.htmlId || undefined} className={`relative p-1 border-2 ${isSelected ? 'border-indigo-500' : 'border-transparent hover:border-indigo-500/50'} ${element.className || ''}`}>
+        // Add the dynamicClassName to the list of classes
+        <div data-draggable="true" id={element.htmlId || undefined} className={`relative p-1 border-2 ${isSelected ? 'border-indigo-500' : 'border-transparent hover:border-indigo-500/50'} ${element.className || ''} ${dynamicClassName}`}>
             {isSelected && (
                 <div className="absolute -top-7 left-0 flex items-center gap-1 bg-indigo-600 text-white px-2 py-0.5 rounded-t-md text-xs">
                     <span className="capitalize">{element.name || element.type.replace(/-/g, ' ')}</span>
@@ -1603,9 +1691,9 @@ const HeroProperties = ({ element, content, onContentChange }: { element: Elemen
                 options={[ { label: 'Image', value: 'image' }, { label: 'Video', value: 'video' } ]}
             />
             {content.backgroundType === 'image' ? (
-                 <StyleInput label="Background Image URL" value={content.backgroundImageUrl} onChange={val => onContentChange({ ...content, backgroundImageUrl: val })} />
+               <StyleInput label="Background Image URL" value={content.backgroundImageUrl} onChange={val => onContentChange({ ...content, backgroundImageUrl: val })} />
             ) : (
-                 <StyleInput label="Background Video URL" value={content.backgroundVideoUrl} onChange={val => onContentChange({ ...content, backgroundVideoUrl: val })} />
+               <StyleInput label="Background Video URL" value={content.backgroundVideoUrl} onChange={val => onContentChange({ ...content, backgroundVideoUrl: val })} />
             )}
             <StyleInput 
                 label="Content Position" 
@@ -1669,26 +1757,26 @@ const ElementPropertiesPanel = ({ element, screenSize, setScreenSize }: { elemen
     
     
     if (['horizontal-scroll', 'image-carousel', 'hero-slider'].includes(element.type)) {
-        const content = JSON.parse(element.content || '{}');
-        return (
-          <>
-            <AddChildElementProperties element={element} />
-            { (element.type === 'image-carousel' || element.type === 'hero-slider') &&
-                <div>
-                  <SliderDelayProperties content={content} onContentChange={handleContentChange} />
-                </div>
-            }
-          </>
-        );
-    }
+        const content = JSON.parse(element.content || '{}');
+        return (
+          <>
+            <AddChildElementProperties element={element} />
+            { (element.type === 'image-carousel' || element.type === 'hero-slider') &&
+                <div>
+                  <SliderDelayProperties content={content} onContentChange={handleContentChange} />
+                </div>
+            }
+          </>
+        );
+    }
 
     if (element.content) {
         try {
             const content = JSON.parse(element.content);
 
             if (element.name === 'Hero Slide') {
-                return <HeroSlideProperties element={element} content={content} onContentChange={handleContentChange} />;
-            }
+                return <HeroSlideProperties element={element} content={content} onContentChange={handleContentChange} />;
+            }
 
             if (element.type === 'auto-scroll') {
                 return <>
@@ -1714,9 +1802,9 @@ const ElementPropertiesPanel = ({ element, screenSize, setScreenSize }: { elemen
                   steps: <StepsProperties element={element} />,
                   footer: <StyleInput label="Copyright Text" value={content.text} onChange={val => handleContentChange({text: val})} />,
                   "right-image-section": <SplitSectionProperties element={element} content={content} onContentChange={handleContentChange} />,
-                  "left-image-section": <SplitSectionProperties element={element} content={content} onContentChange={handleContentChange} />,
-                  "video-right-section": <SplitSectionProperties element={element} content={content} onContentChange={handleContentChange} />,
-                  "video-left-section": <SplitSectionProperties element={element} content={content} onContentChange={handleContentChange} />,
+                  "left-image-section": <SplitSectionProperties element={element} content={content} onContentChange={handleContentChange} />,
+                  "video-right-section": <SplitSectionProperties element={element} content={content} onContentChange={handleContentChange} />,
+                  "video-left-section": <SplitSectionProperties element={element} content={content} onContentChange={handleContentChange} />,
                   "profile-card": <ProfileCardProperties content={content} onContentChange={handleContentChange} />,
                   "testimonial": <TestimonialProperties content={content} onContentChange={handleContentChange} />,
                   "faq": <FaqProperties content={content} onContentChange={handleContentChange} />,
@@ -1917,7 +2005,69 @@ const VersionHistoryPanel = ({ siteId }: { siteId: string }) => {
 VersionHistoryPanel.displayName = 'VersionHistoryPanel';
 
 
-const NavbarProperties = ({ content, onContentChange }: { content: any; onContentChange: (c: any) => void }) => (<> <StyleInput label="Logo Type" type="select" value={content.logo.type} onChange={val => onContentChange({...content, logo: {...content.logo, type: val}})} options={[{label: 'Image', value: 'image'}, {label: 'Text', value: 'text'}]} /> {content.logo.type === 'image' ? <StyleInput label="Logo URL" value={content.logo.src} onChange={val => onContentChange({...content, logo: {...content.logo, src: val}})} /> : <StyleInput label="Logo Text" value={content.logo.text} onChange={val => onContentChange({...content, logo: {...content.logo, text: val}})} />} <h4 className="text-sm font-bold mt-4 mb-2">Links</h4> {content.links.map((link: { id: string, label: string, href: string }, index: number) => (<div key={link.id} className="flex gap-2 items-center mb-2 p-2 bg-gray-700 rounded-md"> <input type="text" placeholder="Label" value={link.label} onChange={e => { const newLinks = [...content.links]; newLinks[index].label = e.target.value; onContentChange({...content, links: newLinks});}} className="flex-1 bg-gray-600 rounded px-2 py-1"/> <input type="text" placeholder="URL" value={link.href} onChange={e => { const newLinks = [...content.links]; newLinks[index].href = e.target.value; onContentChange({...content, links: newLinks});}} className="flex-1 bg-gray-600 rounded px-2 py-1"/> <button onClick={() => { const newLinks = content.links.filter((_:any, i:number) => i !== index); onContentChange({...content, links: newLinks})}} className="p-1 hover:bg-red-500 rounded"><FaTrashAlt size={12}/></button> </div> ))} <button onClick={() => onContentChange({...content, links: [...content.links, {id: `link-${Date.now()}`, label: 'New Link', href: '#'}]})} className="text-indigo-400 text-sm mt-2 flex items-center gap-1"><FaPlus size={10}/> Add Link</button> <h4 className="text-sm font-bold mt-4 mb-2">CTA Button</h4> <label className="flex items-center gap-2 text-xs text-gray-400 mb-1"><input type="checkbox" checked={content.cta.enabled} onChange={e => onContentChange({...content, cta: {...content.cta, enabled: e.target.checked}})} /> Enable CTA</label> {content.cta.enabled && <> <StyleInput label="CTA Label" value={content.cta.label} onChange={(val: string) => onContentChange({...content, cta: {...content.cta, label: val}})} /> <StyleInput label="CTA URL" value={content.cta.href} onChange={(val: string) => onContentChange({...content, cta: {...content.cta, href: val}})} /> </>} </>);
+const NavbarProperties = ({ content, onContentChange }: { content: any; onContentChange: (c: any) => void }) => {
+    const handleLinkChange = (index: number, field: string, value: any) => {
+        const newLinks = produce(content.links, draft => {
+            draft[index][field] = value;
+        });
+        onContentChange({ ...content, links: newLinks });
+    };
+
+    const handleStyleChange = (key: string, value: string) => {
+        onContentChange(produce(content, draft => {
+            if (!draft.styles) draft.styles = {};
+            draft.styles[key] = value;
+        }));
+    };
+
+    const handleCtaStyleChange = (key: string, value: string) => {
+        onContentChange(produce(content, draft => {
+            if (!draft.cta.styles) draft.cta.styles = {};
+            draft.cta.styles[key] = value;
+        }));
+    };
+
+    return (
+        <>
+            <CollapsibleGroup title="Logo" open>
+                <StyleInput label="Logo Type" type="select" value={content.logo.type} onChange={val => onContentChange({ ...content, logo: { ...content.logo, type: val } })} options={[{ label: 'Image', value: 'image' }, { label: 'Text', value: 'text' }]} />
+                {content.logo.type === 'image' ? <StyleInput label="Logo URL" value={content.logo.src} onChange={val => onContentChange({ ...content, logo: { ...content.logo, src: val } })} /> : <StyleInput label="Logo Text" value={content.logo.text} onChange={val => onContentChange({ ...content, logo: { ...content.logo, text: val } })} />}
+            </CollapsibleGroup>
+
+            <CollapsibleGroup title="Links" open>
+                {content.links.map((link: { id: string, label: string, href: string }, index: number) => (
+                    <div key={link.id} className="flex flex-col gap-2 mb-3 p-2 bg-gray-700 rounded-md">
+                        <StyleInput label="Label" value={link.label} onChange={val => handleLinkChange(index, 'label', val)} />
+                        <StyleInput label="URL" value={link.href} onChange={val => handleLinkChange(index, 'href', val)} />
+                        <button onClick={() => { const newLinks = content.links.filter((_: any, i: number) => i !== index); onContentChange({ ...content, links: newLinks }) }} className="p-1 text-xs text-red-400 self-start hover:underline"><FaTrashAlt className="inline mr-1" size={10} />Remove Link</button>
+                    </div>
+                ))}
+                <button onClick={() => onContentChange({ ...content, links: [...content.links, { id: getUniqueId('link'), label: 'New Link', href: '#' }] })} className="text-indigo-400 text-sm mt-2 flex items-center gap-1"><FaPlus size={10} /> Add Link</button>
+            </CollapsibleGroup>
+
+            <CollapsibleGroup title="Link Styles">
+                <StyleInput label="Font Size" value={content.styles?.fontSize || '16px'} onChange={val => handleStyleChange('fontSize', val)} />
+                <StyleInput label="Font Color" type="color" value={content.styles?.color || '#111827'} onChange={val => handleStyleChange('color', val)} />
+                <StyleInput label="Hover Animation" type="select" value={content.styles?.hoverAnimation || 'underline'} onChange={val => handleStyleChange('hoverAnimation', val)} options={[{label: 'Underline', value: 'underline'}, {label: 'Grow', value: 'grow'}, {label: 'Shrink', value: 'shrink'}, {label: 'None', value: 'none'}]} />
+                <StyleInput label="Hover Color" type="color" value={content.styles?.hoverColor || '#4f46e5'} onChange={val => handleStyleChange('hoverColor', val)} />
+            </CollapsibleGroup>
+            
+            <CollapsibleGroup title="CTA Button">
+                <label className="flex items-center gap-2 text-xs text-gray-400 mb-2">
+                    <input type="checkbox" checked={content.cta.enabled} onChange={e => onContentChange({ ...content, cta: { ...content.cta, enabled: e.target.checked } })} /> Enable CTA
+                </label>
+                {content.cta.enabled && <>
+                    <StyleInput label="CTA Label" value={content.cta.label} onChange={(val: string) => onContentChange({ ...content, cta: { ...content.cta, label: val } })} />
+                    <StyleInput label="CTA URL" value={content.cta.href} onChange={(val: string) => onContentChange({ ...content, cta: { ...content.cta, href: val } })} />
+                    <StyleInput label="Background Color" type="color" value={content.cta.styles?.backgroundColor || '#4f46e5'} onChange={val => handleCtaStyleChange('backgroundColor', val)} />
+                    <StyleInput label="Text Color" type="color" value={content.cta.styles?.color || '#ffffff'} onChange={val => handleCtaStyleChange('color', val)} />
+                    <StyleInput label="Border Radius" value={content.cta.styles?.borderRadius || '8px'} onChange={val => handleCtaStyleChange('borderRadius', val)} />
+                </>}
+            </CollapsibleGroup>
+        </>
+    );
+};
+NavbarProperties.displayName = 'NavbarProperties';
 const GalleryProperties = ({ content, onContentChange }: { content: any; onContentChange: (c: any) => void }) => (<> <StyleInput label="Columns" type="number" value={content.columns} onChange={val => onContentChange({...content, columns: Number(val)})} /> <h4 className="text-sm font-bold mt-4 mb-2">Images</h4> {content.images.map((img: string, index: number) => (<div key={index} className="flex gap-2 items-center mb-2 p-2 bg-gray-700 rounded-md"> <input type="text" placeholder="Image URL" value={img} onChange={e => { const newImages = [...content.images]; newImages[index] = e.target.value; onContentChange({...content, images: newImages});}} className="flex-1 bg-gray-600 rounded px-2 py-1"/> <button onClick={() => { const newImages = content.images.filter((_:any, i:number) => i !== index); onContentChange({...content, images: newImages})}} className="p-1 hover:bg-red-500 rounded"><FaTrashAlt size={12}/></button> </div> ))} <button onClick={() => onContentChange({...content, images: [...content.images, 'https://placehold.co/600x400']})} className="text-indigo-400 text-sm mt-2 flex items-center gap-1"><FaPlus size={10}/> Add Image</button> </>);
 const ProfileCardProperties = ({ content, onContentChange }: { content: any; onContentChange: (c: any) => void }) => (<> <StyleInput label="Profile Image URL" value={content.profileImage} onChange={(val: string) => onContentChange({...content, profileImage: val})} /> <StyleInput label="Name" value={content.name} onChange={(val: string) => onContentChange({...content, name: val})} /> <StyleInput label="Title" value={content.title} onChange={(val: string) => onContentChange({...content, title: val})} /> <StyleInput label="Handle" value={content.handle} onChange={(val: string) => onContentChange({...content, handle: val})} /> </>);
 const ColumnsProperties = ({ element, content, onContentChange }: { element: Element, content: any, onContentChange: (c:any)=>void}) => {
@@ -1962,22 +2112,66 @@ const SaveStatusIndicator = ({ status }: { status: 'saved' | 'unsaved' | 'saving
 };
 SaveStatusIndicator.displayName = 'SaveStatusIndicator';
 
-const NavbarComponent = ({ element, screenSize, ...props }: { element: Element; screenSize: 'desktop' | 'tablet' | 'mobile', [key: string]: any }) => {
+const NavbarComponent = ({ element, screenSize, ...props }: { element: Element; [key: string]: any }) => {
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
     const navContent = JSON.parse(element.content);
+    const styles = navContent.styles || {};
+    const ctaStyles = navContent.cta?.styles || {};
 
+    const getHoverClass = (animation: string) => {
+        switch(animation) {
+            case 'grow': return 'hover:scale-110';
+            case 'shrink': return 'hover:scale-90';
+            case 'underline': return 'hover:underline';
+            default: return '';
+        }
+    };
+    
+    const linkStyle = {
+        fontSize: styles.fontSize || '16px',
+        color: styles.color || '#111827',
+    };
+
+    const ctaStyle = {
+        backgroundColor: ctaStyles.backgroundColor || '#4f46e5',
+        color: ctaStyles.color || '#ffffff',
+        borderRadius: ctaStyles.borderRadius || '8px'
+    };
+    
     return (
         <nav {...props} className="relative">
+            <style>{`
+                .nav-link:hover { color: ${styles.hoverColor || '#4f46e5'} !important; }
+            `}</style>
             <div className="flex justify-between items-center w-full">
                 {navContent.logo.type === 'image' ? (
-                    <img src={navContent.logo.src} alt={navContent.logo.alt} className="h-10"/>
+                    <img src={navContent.logo.src} alt={navContent.logo.alt || 'Logo'} className="h-10"/>
                 ) : (
                     <span style={{ fontWeight: 'bold', fontSize: '1.5rem' }}>{navContent.logo.text}</span>
                 )}
-                <div className="hidden md:flex items-center gap-4">
-                    {navContent.links.map((link: { id: string, label: string, href: string }) => <a key={link.id} href={link.href} onClick={e => e.preventDefault()} className="hover:text-indigo-400">{link.label}</a>)}
+                <div className="hidden md:flex items-center gap-6">
+                    {navContent.links.map((link: { id: string, label: string, href: string }) => 
+                        <a 
+                            key={link.id} 
+                            href={link.href} 
+                            onClick={e => e.preventDefault()} 
+                            className={`nav-link transition-all duration-200 ${getHoverClass(styles.hoverAnimation)}`}
+                            style={linkStyle}
+                        >
+                            {link.label}
+                        </a>
+                    )}
                 </div>
-                {navContent.cta.enabled && <a href={navContent.cta.href} onClick={e => e.preventDefault()} className="hidden md:block bg-indigo-600 px-4 py-2 rounded-md hover:bg-indigo-500 text-white">{navContent.cta.label}</a>}
+                {navContent.cta.enabled && 
+                    <a 
+                        href={navContent.cta.href} 
+                        onClick={e => e.preventDefault()} 
+                        className="hidden md:block px-4 py-2 transition-opacity hover:opacity-90"
+                        style={ctaStyle}
+                    >
+                        {navContent.cta.label}
+                    </a>
+                }
                 <div className="md:hidden">
                     <button onClick={(e) => {e.stopPropagation(); setIsMobileMenuOpen(!isMobileMenuOpen)}}>
                         {isMobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
@@ -1987,8 +2181,27 @@ const NavbarComponent = ({ element, screenSize, ...props }: { element: Element; 
             {isMobileMenuOpen && (
                 <div className="absolute top-full left-0 w-full bg-white text-black mt-2 rounded-md shadow-lg p-4 md:hidden">
                     <div className="flex flex-col gap-4">
-                        {navContent.links.map((link: { id: string, label: string, href: string }) => <a key={link.id} href={link.href} onClick={e => e.preventDefault()} className="hover:text-indigo-600">{link.label}</a>)}
-                        {navContent.cta.enabled && <a href={navContent.cta.href} onClick={e => e.preventDefault()} className="bg-indigo-600 text-center px-4 py-2 rounded-md hover:bg-indigo-500 text-white">{navContent.cta.label}</a>}
+                        {navContent.links.map((link: { id: string, label: string, href: string }) => 
+                            <a 
+                                key={link.id} 
+                                href={link.href} 
+                                onClick={e => e.preventDefault()}
+                                className="nav-link"
+                                style={linkStyle}
+                            >
+                                {link.label}
+                            </a>
+                        )}
+                        {navContent.cta.enabled && 
+                            <a 
+                                href={navContent.cta.href} 
+                                onClick={e => e.preventDefault()} 
+                                className="text-center px-4 py-2"
+                                style={ctaStyle}
+                            >
+                                {navContent.cta.label}
+                            </a>
+                        }
                     </div>
                 </div>
             )}
@@ -1996,6 +2209,307 @@ const NavbarComponent = ({ element, screenSize, ...props }: { element: Element; 
     )
 }
 NavbarComponent.displayName = 'NavbarComponent';
+
+const AILayoutGeneratorModal = ({
+  isOpen,
+  onClose,
+  onGenerate,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  onGenerate: (elements: Element[]) => void;
+}) => {
+  const [prompt, setPrompt] = useState('');
+  const [file, setFile] = useState<File | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  if (!isOpen) return null;
+
+  const availableElements: ElementType[] = [
+    'navbar', 'hero', 'right-image-section', 'left-image-section',
+    'feature-grid', 'steps', 'gallery', 'testimonial', 'contact-form', 'footer'
+  ];
+
+  const fileToGenerativePart = async (file: File): Promise<{ inlineData: { data: string; mimeType: string } }> => {
+    const base64EncodedData = await new Promise<string>((resolve) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve((reader.result as string).split(',')[1]);
+      reader.readAsDataURL(file);
+    });
+    return {
+      inlineData: { data: base64EncodedData, mimeType: file.type },
+    };
+  };
+
+const generateElementFromAI = (componentData: { type: ElementType; content: any }): Element | Element[] | null => {
+    const { type, content } = componentData;
+
+    // Handle the special 'gallery' case which returns an array
+    if (type === 'gallery') {
+        const headingEl = createNewElement('heading') as Element;
+        headingEl.content = `<h2>${content.heading || 'Our Gallery'}</h2>`;
+
+        const galleryBaseElement = createNewElement('gallery') as Element;
+        const galleryElement = produce(galleryBaseElement, draft => {
+            const galleryContent = JSON.parse(draft.content);
+            if (content.imagePrompts) {
+                galleryContent.images = content.imagePrompts.map((prompt: string) => `https://source.unsplash.com/800x600/?${encodeURIComponent(prompt)}`);
+            }
+            draft.content = JSON.stringify(galleryContent, null, 2);
+        });
+
+        return [headingEl, galleryElement];
+    }
+    
+    // Handle all other cases which return a single element
+    const baseElementOrArray = createNewElement(type);
+    if (!baseElementOrArray) return null;
+
+    const baseElement = Array.isArray(baseElementOrArray) ? baseElementOrArray[0] : baseElementOrArray;
+
+    const hydratedElement = produce(baseElement, draft => {
+        // The original switch statement, but without the 'gallery' case
+        switch (draft.type) {
+            case 'navbar': {
+                const navContent = JSON.parse(draft.content);
+                navContent.logo.text = content.logoText || navContent.logo.text;
+                navContent.logo.type = 'text';
+                navContent.links = (content.links || []).map((label: string) => ({ id: getUniqueId('link'), label, href: '#' }));
+                navContent.cta.label = content.ctaButton || navContent.cta.label;
+                draft.content = JSON.stringify(navContent, null, 2);
+                break;
+            }
+            case 'hero': {
+                if (draft.children) {
+                    if (content.heading) draft.children[0].content = `<h1>${content.heading}</h1>`;
+                    if (content.subheading) draft.children[1].content = `<p>${content.subheading}</p>`;
+                    if (content.ctaButton) draft.children[2].content = content.ctaButton;
+                }
+                if (content.backgroundImagePrompt) {
+                    const heroContent = JSON.parse(draft.content);
+                    heroContent.backgroundImageUrl = `https://source.unsplash.com/1600x900/?${encodeURIComponent(content.backgroundImagePrompt)}`;
+                    draft.content = JSON.stringify(heroContent);
+                }
+                break;
+            }
+            case 'right-image-section':
+            case 'left-image-section': {
+                const headingEl = createNewElement('heading') as Element;
+                headingEl.content = `<h2>${content.heading || ''}</h2>`;
+                const pEl = createNewElement('paragraph') as Element;
+                pEl.content = `<p>${content.paragraph || ''}</p>`;
+                draft.children = [headingEl, pEl];
+
+                if (content.imagePrompt) {
+                    const sectionContent = JSON.parse(draft.content);
+                    sectionContent.imageSrc = `https://source.unsplash.com/800x600/?${encodeURIComponent(content.imagePrompt)}`;
+                    draft.content = JSON.stringify(sectionContent);
+                }
+                break;
+            }
+            case 'feature-grid': {
+                if (content.heading && draft.children?.[0]) {
+                    draft.children[0].content = `<h2>${content.heading}</h2>`;
+                }
+                if (content.features && Array.isArray(content.features) && draft.children?.[1]) {
+                    const gridContainer = draft.children[1];
+                    gridContainer.children = content.features.map((feature: any) => {
+                        const featureBlock = createNewElement('feature-block') as Element;
+                        featureBlock.content = JSON.stringify({
+                            icon: feature.icon || 'Star',
+                            title: feature.title || 'Feature',
+                            text: feature.text || 'Description',
+                        });
+                        return featureBlock;
+                    });
+                }
+                break;
+            }
+            case 'steps': {
+                if (content.heading && draft.children?.[0]) draft.children[0].content = `<h2>${content.heading}</h2>`;
+                if (content.steps && Array.isArray(content.steps) && draft.children?.[1]) {
+                    const stepsContainer = draft.children[1];
+                    stepsContainer.children = [];
+                    content.steps.forEach((step: any, index: number) => {
+                        const stepBlock = createNewElement('step-block') as Element;
+                        if (stepBlock.children) {
+                            stepBlock.children[0].content = `<p>${step.number || String(index + 1).padStart(2, '0')}</p>`;
+                            stepBlock.children[1].content = `<h3>${step.title || ''}</h3>`;
+                            stepBlock.children[2].content = `<p>${step.text || ''}</p>`;
+                        }
+                        stepsContainer.children.push(stepBlock);
+                        if (index < content.steps.length - 1) {
+                            stepsContainer.children.push(createNewElement('step-connector') as Element);
+                        }
+                    });
+                }
+                break;
+            }
+            // The 'gallery' case is now removed from here
+            case 'testimonial': {
+                const testimonialContent = JSON.parse(draft.content);
+                testimonialContent.quote = content.quote || testimonialContent.quote;
+                testimonialContent.name = content.name || testimonialContent.name;
+                testimonialContent.title = content.title || testimonialContent.title;
+                testimonialContent.avatar = `https://i.pravatar.cc/150?u=${encodeURIComponent(content.name)}`;
+                draft.content = JSON.stringify(testimonialContent);
+                break;
+            }
+            case 'contact-form': {
+                const heading = createNewElement('heading') as Element;
+                heading.content = `<h2>${content.heading || 'Contact Us'}</h2>`;
+                const subheading = createNewElement('paragraph') as Element;
+                subheading.content = `<p>${content.subheading || 'Get in touch with us.'}</p>`;
+                draft.children = [heading, subheading, ...(draft.children || [])];
+                break;
+            }
+            case 'footer': {
+                const footerContent = JSON.parse(draft.content);
+                footerContent.text = content.copyrightText || footerContent.text;
+                draft.content = JSON.stringify(footerContent, null, 2);
+                break;
+            }
+        }
+    });
+
+    return hydratedElement;
+};
+
+  const handleGenerateClick = async () => {
+    if (!prompt && !file) {
+      setError('Please describe your page or upload a resume.');
+      return;
+    }
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const requestBody: { prompt: string; filePart?: any } = { prompt };
+
+      if (file) {
+        requestBody.filePart = await fileToGenerativePart(file);
+      }
+
+      const response = await fetch('/api/generate-layout', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBody),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to generate layout from server.');
+      }
+      
+      const aiLayoutData = data.layout;
+
+      if (!Array.isArray(aiLayoutData)) {
+        throw new Error("AI response was not in the expected format (array of components).");
+      }
+      
+      const newElements = aiLayoutData.flatMap((componentData: any) =>
+          generateElementFromAI(componentData)
+      ).filter(Boolean);
+
+      onGenerate(newElements as Element[]);
+      onClose();
+      
+    } catch (err) {
+      console.error("AI Generation Failed:", err);
+      let errorMessage = "Sorry, the AI failed to generate a valid layout. Please try again.";
+      if (err instanceof Error) {
+        errorMessage = err.message;
+      }
+      setError(errorMessage);
+    } finally {
+      setIsLoading(false);
+    }
+};
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      setFile(e.target.files[0]);
+    }
+  };
+
+  const clearFile = () => {
+    setFile(null);
+    if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[100] bg-black/60 flex items-center justify-center p-4">
+      <div className="bg-gray-800 rounded-lg shadow-xl p-6 w-full max-w-lg text-white border border-gray-700">
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-xl font-bold">Generate Page with AI</h2>
+          <button onClick={onClose} className="p-1 rounded-full hover:bg-gray-700"><X size={20} /></button>
+        </div>
+        <p className="text-sm text-gray-400 mb-4">
+          Describe the website you want, or upload a resume to generate a personalized portfolio.
+        </p>
+        
+        <textarea
+          value={prompt}
+          onChange={(e) => setPrompt(e.target.value)}
+          placeholder="e.g., A modern portfolio for a software engineer specializing in AI."
+          className="w-full h-24 bg-gray-700 rounded-md p-3 text-sm border border-gray-600 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+          disabled={isLoading}
+        />
+
+        <div className="mt-4">
+            <label className="text-sm text-gray-400">Upload Resume (Optional)</label>
+            <div className="mt-1 flex items-center gap-4 p-3 bg-gray-700 rounded-md border border-gray-600">
+                <input 
+                    type="file"
+                    ref={fileInputRef}
+                    onChange={handleFileChange}
+                    accept=".pdf,.png,.jpg,.jpeg"
+                    className="hidden"
+                    id="resume-upload"
+                    disabled={isLoading}
+                />
+                <label htmlFor="resume-upload" className={`px-4 py-2 text-sm rounded-md transition-colors ${isLoading ? 'bg-gray-500 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-500 cursor-pointer'}`}>
+                    Choose File
+                </label>
+                {file ? (
+                    <div className="flex items-center gap-2 text-xs overflow-hidden">
+                        <span className="truncate">{file.name}</span>
+                        <button onClick={clearFile} disabled={isLoading} className="text-red-400 hover:text-red-300 flex-shrink-0"><X size={14}/></button>
+                    </div>
+                ) : (
+                    <span className="text-xs text-gray-500">No file selected.</span>
+                )}
+            </div>
+        </div>
+
+        {error && <p className="text-red-400 text-xs mt-3">{error}</p>}
+        
+        <div className="mt-6 flex justify-end gap-4">
+          <button onClick={onClose} className="px-4 py-2 bg-gray-600 rounded-md hover:bg-gray-500 transition-colors text-sm" disabled={isLoading}>
+            Cancel
+          </button>
+          <button
+            onClick={handleGenerateClick}
+            className="px-4 py-2 bg-indigo-600 rounded-md hover:bg-indigo-500 transition-colors text-sm flex items-center gap-2 disabled:bg-indigo-800 disabled:cursor-not-allowed"
+            disabled={isLoading || (!prompt && !file)}
+          >
+            {isLoading ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
+            {isLoading ? 'Generating...' : 'Generate Layout'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+AILayoutGeneratorModal.displayName = 'AILayoutGeneratorModal';
+
 
 const TestimonialComponent = ({ element, props }: { element: Element; props: any }) => {
     const content = JSON.parse(element.content);
@@ -2055,82 +2569,82 @@ const StepBlockComponent = ({ element, props, dropProps, renderChildren }: { ele
 StepBlockComponent.displayName = 'StepBlockComponent';
 
 const StepsComponent = ({ element, props, dropProps, renderChildren }: { element: Element; props: any, dropProps: any, renderChildren: any }) => {
-    return (
-      <section {...props} {...dropProps}>
-        {renderChildren(element.children || [], element.id)}
-      </section>
-    );
+    return (
+      <section {...props} {...dropProps}>
+        {renderChildren(element.children || [], element.id)}
+      </section>
+    );
 };
 StepsComponent.displayName = 'StepsComponent';
 
 const StepsProperties = ({ element }: { element: Element; }) => {
-    const { dispatch } = useEditorContext();
-    const content = JSON.parse(element.content || '{}');
-    const stepsContainer = element.children?.find(child => child.name === "Steps Container");
+    const { dispatch } = useEditorContext();
+    const content = JSON.parse(element.content || '{}');
+    const stepsContainer = element.children?.find(child => child.name === "Steps Container");
 
-    if (!stepsContainer) return <p className="text-xs text-red-400">Error: Steps container not found.</p>;
+    if (!stepsContainer) return <p className="text-xs text-red-400">Error: Steps container not found.</p>;
 
-    const handleAddStep = () => {
-        const stepBlocks = stepsContainer.children?.filter(c => c.type === 'step-block') || [];
-        const newStepNumber = stepBlocks.length + 1;
-        const newStep = createNewElement('step-block') as Element;
-        if (newStep.children?.[0]) {
-            newStep.children[0].content = `<p>${String(newStepNumber).padStart(2, '0')}</p>`;
-        }
+    const handleAddStep = () => {
+        const stepBlocks = stepsContainer.children?.filter(c => c.type === 'step-block') || [];
+        const newStepNumber = stepBlocks.length + 1;
+        const newStep = createNewElement('step-block') as Element;
+        if (newStep.children?.[0]) {
+            newStep.children[0].content = `<p>${String(newStepNumber).padStart(2, '0')}</p>`;
+        }
 
-        const elementsToAdd = [
-            createNewElement('step-connector') as Element,
-            newStep
-        ];
+        const elementsToAdd = [
+            createNewElement('step-connector') as Element,
+            newStep
+        ];
 
-        dispatch({
-            type: 'ADD_ELEMENT',
-            payload: {
-                elements: elementsToAdd,
-                parentId: stepsContainer.id,
-                index: stepsContainer.children?.length || 0
-            }
-        });
-    };
-    
-    const handleConnectorChange = (type: string) => {
-        dispatch({
-            type: 'UPDATE_ELEMENT_CONTENT',
-            payload: { elementId: element.id, content: JSON.stringify({ connectorType: type }, null, 2) }
-        });
+        dispatch({
+            type: 'ADD_ELEMENT',
+            payload: {
+                elements: elementsToAdd,
+                parentId: stepsContainer.id,
+                index: stepsContainer.children?.length || 0
+            }
+        });
+    };
+    
+    const handleConnectorChange = (type: string) => {
+        dispatch({
+            type: 'UPDATE_ELEMENT_CONTENT',
+            payload: { elementId: element.id, content: JSON.stringify({ connectorType: type }, null, 2) }
+        });
 
-        const borderStyle = {
-            solid: '2px solid #e5e7eb',
-            dashed: '2px dashed #e5e7eb',
-            dotted: '2px dotted #e5e7eb',
-        }[type] || 'none';
+        const borderStyle = {
+            solid: '2px solid #e5e7eb',
+            dashed: '2px dashed #e5e7eb',
+            dotted: '2px dotted #e5e7eb',
+        }[type] || 'none';
 
-        stepsContainer.children?.forEach(child => {
-            if (child.type === 'step-connector') {
-                dispatch({
-                    type: 'UPDATE_ELEMENT_STYLES',
-                    payload: { elementId: child.id, styles: { borderTop: borderStyle }, breakpoint: 'desktop', state: 'default' }
-                });
-            }
-        });
-    };
+        stepsContainer.children?.forEach(child => {
+            if (child.type === 'step-connector') {
+                dispatch({
+                    type: 'UPDATE_ELEMENT_STYLES',
+                    payload: { elementId: child.id, styles: { borderTop: borderStyle }, breakpoint: 'desktop', state: 'default' }
+                });
+            }
+        });
+    };
 
-    return (
-        <>
-            <StyleInput
-                label="Connector Style"
-                type="select"
-                value={content.connectorType || 'solid'}
-                onChange={handleConnectorChange}
-                options={[{ label: 'Solid Line', value: 'solid' }, { label: 'Dashed Line', value: 'dashed' }, { label: 'Dotted Line', value: 'dotted' }, { label: 'None', value: 'none' }]}
-            />
-            <div className="my-4 border-t border-gray-700"></div>
-            <button onClick={handleAddStep} className="w-full flex items-center justify-center gap-2 bg-indigo-600 py-2 rounded-md hover:bg-indigo-500 text-sm">
-                <FaPlus size={12} /> Add New Step
-            </button>
-            <p className="text-xs text-gray-400 mt-2">To edit, reorder, or delete an individual step, select it on the canvas.</p>
-        </>
-    );
+    return (
+        <>
+            <StyleInput
+                label="Connector Style"
+                type="select"
+                value={content.connectorType || 'solid'}
+                onChange={handleConnectorChange}
+                options={[{ label: 'Solid Line', value: 'solid' }, { label: 'Dashed Line', value: 'dashed' }, { label: 'Dotted Line', value: 'dotted' }, { label: 'None', value: 'none' }]}
+            />
+            <div className="my-4 border-t border-gray-700"></div>
+            <button onClick={handleAddStep} className="w-full flex items-center justify-center gap-2 bg-indigo-600 py-2 rounded-md hover:bg-indigo-500 text-sm">
+                <FaPlus size={12} /> Add New Step
+            </button>
+            <p className="text-xs text-gray-400 mt-2">To edit, reorder, or delete an individual step, select it on the canvas.</p>
+        </>
+    );
 };
 StepsProperties.displayName = 'StepsProperties';
 
@@ -2196,8 +2710,8 @@ const AutoScrollComponent = ({ element, props, dropProps, screenSize, handleDrag
                 } else {
                     const childNode = scrollRef.current.children[nextIndex] as HTMLElement;
                     if (childNode) {
-                       scrollRef.current.scrollTo({ left: childNode.offsetLeft, behavior: 'smooth' });
-                       setCurrentIndex(nextIndex);
+                      scrollRef.current.scrollTo({ left: childNode.offsetLeft, behavior: 'smooth' });
+                      setCurrentIndex(nextIndex);
                     }
                 }
             }
@@ -2210,15 +2724,15 @@ const AutoScrollComponent = ({ element, props, dropProps, screenSize, handleDrag
             <div ref={scrollRef} className="flex gap-4 overflow-x-auto p-4 scroll-smooth no-scrollbar" {...dropProps}>
                 {(element.children || []).map((child, i) => (
                      <div key={child.id} data-draggable="true">
-                        {dropIndicator?.parentId === element.id && dropIndicator.index === i && <DropIndicator />}
-                        <RenderElement
-                            element={child}
-                            screenSize={screenSize}
-                            handleDragOver={handleDragOver}
-                            handleDrop={handleDrop}
-                            dropIndicator={dropIndicator}
-                        />
-                    </div>
+                         {dropIndicator?.parentId === element.id && dropIndicator.index === i && <DropIndicator />}
+                         <RenderElement
+                             element={child}
+                             screenSize={screenSize}
+                             handleDragOver={handleDragOver}
+                             handleDrop={handleDrop}
+                             dropIndicator={dropIndicator}
+                         />
+                     </div>
                 ))}
                 {dropIndicator?.parentId === element.id && dropIndicator.index === totalChildren && <DropIndicator />}
             </div>
@@ -2295,7 +2809,7 @@ const SingleAutoScrollComponent = ({ element, props, dropProps, selectedElementI
                  </div>
              ))}
              {element.children.length === 0 && <div className="min-h-[60px] flex items-center justify-center text-xs text-gray-400 border-2 border-dashed border-gray-300 rounded-md">Drag elements here</div>}
-              <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-black/50 text-white text-xs px-2 py-1 rounded-full">
+               <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-black/50 text-white text-xs px-2 py-1 rounded-full">
                 <span>{currentIndex + 1} / {totalChildren}</span>
             </div>
         </div>
@@ -2351,61 +2865,63 @@ const ImageCarouselComponent = ({ element, props, dropProps }: { element: Elemen
         </div>
     );
 };
+ImageCarouselComponent.displayName = 'ImageCarouselComponent';
 
 const HeroSliderComponent = ({ element, props, dropProps, selectedElementId }: { element: Element; props: any, dropProps: any, selectedElementId: string | null; }) => {
-    const { state } = useEditorContext();
-    const content = JSON.parse(element.content || '{}');
-    const delay = content.delay || 4000;
-    const [currentIndex, setCurrentIndex] = useState(0);
-    const totalChildren = element.children?.length || 0;
-    const [isHovering, setIsHovering] = useState(false);
+    const { state } = useEditorContext();
+    const content = JSON.parse(element.content || '{}');
+    const delay = content.delay || 4000;
+    const [currentIndex, setCurrentIndex] = useState(0);
+    const totalChildren = element.children?.length || 0;
+    const [isHovering, setIsHovering] = useState(false);
 
-    const childIds = useMemo(() => {
-        const getAllIds = (els: Element[]): string[] => {
-            return els.flatMap(el => [el.id, ...(el.children ? getAllIds(el.children) : [])]);
-        };
-        return getAllIds(element.children || []);
-    }, [element.children]);
+    const childIds = useMemo(() => {
+        const getAllIds = (els: Element[]): string[] => {
+            return els.flatMap(el => [el.id, ...(el.children ? getAllIds(el.children) : [])]);
+        };
+        return getAllIds(element.children || []);
+    }, [element.children]);
 
-    const isChildSelected = selectedElementId ? childIds.includes(selectedElementId) : false;
-    const isPaused = isHovering || isChildSelected || state.selectedElementId === element.id;
+    const isChildSelected = selectedElementId ? childIds.includes(selectedElementId) : false;
+    const isPaused = isHovering || isChildSelected || state.selectedElementId === element.id;
 
-    useEffect(() => {
-        if (isPaused || totalChildren <= 1) return;
-        const interval = setInterval(() => {
-            setCurrentIndex(prevIndex => (prevIndex + 1) % totalChildren);
-        }, delay);
-        return () => clearInterval(interval);
-    }, [totalChildren, delay, isPaused]);
+    useEffect(() => {
+        if (isPaused || totalChildren <= 1) return;
+        const interval = setInterval(() => {
+            setCurrentIndex(prevIndex => (prevIndex + 1) % totalChildren);
+        }, delay);
+        return () => clearInterval(interval);
+    }, [totalChildren, delay, isPaused]);
 
-    return (
-        <div {...props} {...dropProps} onMouseEnter={() => setIsHovering(true)} onMouseLeave={() => setIsHovering(false)}>
-            {element.children.map((child, index) => (
-                <div key={child.id} className={`absolute w-full h-full transition-opacity duration-1000 ease-in-out ${index === currentIndex ? 'opacity-100' : 'opacity-0'}`}>
-                    <RenderElement element={child} {...{screenSize: 'desktop', handleDragOver: ()=>{}, handleDrop: ()=>{}, dropIndicator: null}} />
-                </div>
-            ))}
-             {element.children.length === 0 && <div className="min-h-[60px] flex items-center justify-center text-xs text-gray-400 border-2 border-dashed border-gray-300 rounded-md">Drag slides here</div>}
-             <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2">
-                {element.children.map((_, index) => (
-                    <button 
-                        key={index} 
-                        onClick={() => setCurrentIndex(index)}
-                        className={`w-2 h-2 rounded-full transition-colors ${currentIndex === index ? 'bg-white' : 'bg-white/50'}`}
-                    ></button>
-                ))}
-            </div>
-        </div>
-    );
+    return (
+        <div {...props} {...dropProps} onMouseEnter={() => setIsHovering(true)} onMouseLeave={() => setIsHovering(false)}>
+            {element.children.map((child, index) => (
+                <div key={child.id} className={`absolute w-full h-full transition-opacity duration-1000 ease-in-out ${index === currentIndex ? 'opacity-100' : 'opacity-0'}`}>
+                    <RenderElement element={child} {...{screenSize: 'desktop', handleDragOver: ()=>{}, handleDrop: ()=>{}, dropIndicator: null}} />
+                </div>
+            ))}
+             {element.children.length === 0 && <div className="min-h-[60px] flex items-center justify-center text-xs text-gray-400 border-2 border-dashed border-gray-300 rounded-md">Drag slides here</div>}
+               <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2">
+                {element.children.map((_, index) => (
+                    <button 
+                        key={index} 
+                        onClick={() => setCurrentIndex(index)}
+                        className={`w-2 h-2 rounded-full transition-colors ${currentIndex === index ? 'bg-white' : 'bg-white/50'}`}
+                    ></button>
+                ))}
+            </div>
+        </div>
+    );
 };
+HeroSliderComponent.displayName = 'HeroSliderComponent';
 
 const SliderDelayProperties = ({ content, onContentChange }: { content: any, onContentChange: (c: any) => void }) => (
-    <StyleInput
-        label="Slide Delay (ms)"
-        type="number"
-        value={content.delay}
-        onChange={val => onContentChange({ ...content, delay: Number(val) })}
-    />
+    <StyleInput
+        label="Slide Delay (ms)"
+        type="number"
+        value={content.delay}
+        onChange={val => onContentChange({ ...content, delay: Number(val) })}
+    />
 );
 SliderDelayProperties.displayName = 'SliderDelayProperties';
 
@@ -2513,50 +3029,49 @@ const HeroComponent = ({
     </section>
   )
 }
-
 HeroComponent.displayName = 'HeroComponent';
 
 
 // Add these new components to your file
 
 const RightImageSection = ({ element, dropProps, renderChildren }: { element: Element; dropProps: any; renderChildren: any }) => {
-    const content = JSON.parse(element.content);
-    return (
-        <div className="w-1/2 min-h-[100px] flex flex-col justify-center" {...dropProps}>
-            {renderChildren(element.children || [], element.id)}
-        </div>
-    );
+    const content = JSON.parse(element.content);
+    return (
+        <div className="w-1/2 min-h-[100px] flex flex-col justify-center" {...dropProps}>
+            {renderChildren(element.children || [], element.id)}
+        </div>
+    );
 };
 RightImageSection.displayName = 'RightImageSection';
 
 const LeftImageSection = ({ element }: { element: Element }) => {
-    const content = JSON.parse(element.content);
-    return (
-        <div className="w-1/2">
-            <img src={content.imageSrc} alt="" className="w-full h-auto object-cover rounded-lg" />
-        </div>
-    );
+    const content = JSON.parse(element.content);
+    return (
+        <div className="w-1/2">
+            <img src={content.imageSrc} alt="" className="w-full h-auto object-cover rounded-lg" />
+        </div>
+    );
 };
 LeftImageSection.displayName = 'LeftImageSection';
 
 
 const RightVideoSection = ({ element }: { element: Element }) => {
-    const content = JSON.parse(element.content || '{}');
-    return (
-        <div className="w-1/2">
-            <iframe className="w-full aspect-video rounded-lg" src={content.videoUrl} title="Embedded Video" frameBorder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen></iframe>
-        </div>
-    );
+    const content = JSON.parse(element.content || '{}');
+    return (
+        <div className="w-1/2">
+            <iframe className="w-full aspect-video rounded-lg" src={content.videoUrl} title="Embedded Video" frameBorder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen></iframe>
+        </div>
+    );
 };
 RightVideoSection.displayName = 'RightVideoSection';
 
 
 const LeftVideoSection = ({ element, dropProps, renderChildren }: { element: Element; dropProps: any; renderChildren: any }) => {
-    return (
-        <div className="w-1/2 min-h-[100px]" {...dropProps}>
-            {renderChildren(element.children || [], element.id)}
-        </div>
-    );
+    return (
+        <div className="w-1/2 min-h-[100px]" {...dropProps}>
+            {renderChildren(element.children || [], element.id)}
+        </div>
+    );
 };
 LeftVideoSection.displayName = 'LeftVideoSection';
 
@@ -2572,62 +3087,62 @@ const TestimonialProperties = ({ content, onContentChange }: { content: any; onC
 TestimonialProperties.displayName = 'TestimonialProperties';
 
 const FeatureGridProperties = ({ element, content = {}, onContentChange }: { element: Element; content: any; onContentChange: (c: any) => void; }) => {
-    const { dispatch } = useEditorContext();
-    
-    const gridContainer = element.children?.[1];
+    const { dispatch } = useEditorContext();
+    
+    const gridContainer = element.children?.[1];
 
-    const handleAddFeatureBlock = () => {
-        if (!gridContainer) {
-            console.error("Feature grid container not found!");
-            return;
-        }
+    const handleAddFeatureBlock = () => {
+        if (!gridContainer) {
+            console.error("Feature grid container not found!");
+            return;
+        }
 
-        const newElement = createNewElement('feature-block') as Element;
-        dispatch({
-            type: 'ADD_ELEMENT',
-            payload: {
-                elements: [newElement],
-                parentId: gridContainer.id,
-                index: gridContainer.children?.length || 0
-            }
-        });
-    };
+        const newElement = createNewElement('feature-block') as Element;
+        dispatch({
+            type: 'ADD_ELEMENT',
+            payload: {
+                elements: [newElement],
+                parentId: gridContainer.id,
+                index: gridContainer.children?.length || 0
+            }
+        });
+    };
 
-    const handleColumnCountChange = (count: number) => {
-        if (!gridContainer) return;
+    const handleColumnCountChange = (count: number) => {
+        if (!gridContainer) return;
 
-        onContentChange({ ...content, columnCount: count });
+        onContentChange({ ...content, columnCount: count });
 
-        dispatch({
-            type: 'UPDATE_ELEMENT_STYLES',
-            payload: {
-                elementId: gridContainer.id,
-                styles: { gridTemplateColumns: `repeat(${count}, 1fr)` },
-                breakpoint: 'desktop',
-                state: 'default'
-            }
-        });
-    };
+        dispatch({
+            type: 'UPDATE_ELEMENT_STYLES',
+            payload: {
+                elementId: gridContainer.id,
+                styles: { gridTemplateColumns: `repeat(${count}, 1fr)` },
+                breakpoint: 'desktop',
+                state: 'default'
+            }
+        });
+    };
 
-    return (
-        <div>
-            <StyleInput
-                label="Columns"
-                type="select"
-                value={content.columnCount || 3}
-                onChange={val => handleColumnCountChange(Number(val))}
-                options={[1, 2, 3, 4, 5, 6].map(v => ({ label: `${v} Column${v > 1 ? 's' : ''}`, value: v }))}
-            />
-            <div className="my-4 border-t border-gray-700"></div>
-            <button
-                onClick={handleAddFeatureBlock}
-                className="w-full flex items-center justify-center gap-2 bg-indigo-600 py-2 rounded-md hover:bg-indigo-500 text-sm"
-            >
-                <FaPlus size={12} /> Add Feature Block
-            </button>
-            <p className="text-xs text-gray-400 mt-2">Select an individual feature block in the canvas to edit its content.</p>
-        </div>
-    );
+    return (
+        <div>
+            <StyleInput
+                label="Columns"
+                type="select"
+                value={content.columnCount || 3}
+                onChange={val => handleColumnCountChange(Number(val))}
+                options={[1, 2, 3, 4, 5, 6].map(v => ({ label: `${v} Column${v > 1 ? 's' : ''}`, value: v }))}
+            />
+            <div className="my-4 border-t border-gray-700"></div>
+            <button
+                onClick={handleAddFeatureBlock}
+                className="w-full flex items-center justify-center gap-2 bg-indigo-600 py-2 rounded-md hover:bg-indigo-500 text-sm"
+            >
+                <FaPlus size={12} /> Add Feature Block
+            </button>
+            <p className="text-xs text-gray-400 mt-2">Select an individual feature block in the canvas to edit its content.</p>
+        </div>
+    );
 };
 FeatureGridProperties.displayName = 'FeatureGridProperties';
 
@@ -2790,7 +3305,7 @@ const ContactFormProperties = ({ content, onContentChange }: { content: any; onC
 ContactFormProperties.displayName = 'ContactFormProperties';
 
 const SplitSectionProperties = ({ element, content, onContentChange }: { element: Element, content: any, onContentChange: (c: any) => void }) => {
-    const { dispatch } = useEditorContext();
+    const { dispatch } = useEditorContext();
     const isVideo = element.type.includes('video');
     
     const handleAddElement = () => {
@@ -2805,9 +3320,9 @@ const SplitSectionProperties = ({ element, content, onContentChange }: { element
         });
     };
 
-    return (
-        <>
-            <StyleInput 
+    return (
+        <>
+            <StyleInput 
                 label={isVideo ? "Video URL" : "Image URL"}
                 value={isVideo ? content.videoUrl : content.imageSrc} 
                 onChange={val => onContentChange({ ...content, [isVideo ? 'videoUrl' : 'imageSrc']: val })} 
@@ -2821,93 +3336,93 @@ const SplitSectionProperties = ({ element, content, onContentChange }: { element
             >
                 <FaPlus size={12} /> Add Element
             </button>
-        </>
-    );
+        </>
+    );
 };
 SplitSectionProperties.displayName = 'SplitSectionProperties';
 
 
 const HeroSlideComponent = ({
-  element,
-  props,
-  dropProps,
-  renderChildren,
+  element,
+  props,
+  dropProps,
+  renderChildren,
 }: {
-  element: Element;
-  props: any;
-  dropProps: any;
-  renderChildren: any;
+  element: Element;
+  props: any;
+  dropProps: any;
+  renderChildren: any;
 }) => {
-  const content = JSON.parse(element.content || '{}');
+  const content = JSON.parse(element.content || '{}');
 
-  const getYouTubeVideoId = (url: string) => {
-    if (!url) return null;
-    const regExp = /^(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:watch\?v=|embed\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/;
-    const match = url.match(regExp);
-    return match ? match[1] : null;
-  };
-  const isYouTube = (url: string) => /youtube\.com|youtu\.be/.test(url ?? '');
-  const videoId = isYouTube(content.backgroundVideoUrl) ? getYouTubeVideoId(content.backgroundVideoUrl) : null;
-  const youTubeSrc = videoId ? `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&loop=1&playlist=${videoId}&controls=0` : '';
+  const getYouTubeVideoId = (url: string) => {
+    if (!url) return null;
+    const regExp = /^(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:watch\?v=|embed\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/;
+    const match = url.match(regExp);
+    return match ? match[1] : null;
+  };
+  const isYouTube = (url: string) => /youtube\.com|youtu\.be/.test(url ?? '');
+  const videoId = isYouTube(content.backgroundVideoUrl) ? getYouTubeVideoId(content.backgroundVideoUrl) : null;
+  const youTubeSrc = videoId ? `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&loop=1&playlist=${videoId}&controls=0` : '';
 
-  return (
-    <div {...props} className="relative w-full h-full overflow-hidden">
-      {content.backgroundType === 'image' && content.backgroundImageUrl && (
-        <img
-          src={content.backgroundImageUrl}
-          alt="background"
-          className="absolute top-0 left-0 w-full h-full object-cover z-0"
-        />
-      )}
-      {content.backgroundType === 'video' && content.backgroundVideoUrl && (
-        isYouTube(content.backgroundVideoUrl) && youTubeSrc ? (
-          <iframe
-            src={youTubeSrc}
-            frameBorder="0"
-            allow="autoplay; encrypted-media"
-            allowFullScreen
-            title="Background Video"
-            className="absolute top-1/2 left-1/2 min-w-full min-h-full w-auto h-auto -translate-x-1/2 -translate-y-1/2 z-0"
-          ></iframe>
-        ) : (
-          <video
-            src={content.backgroundVideoUrl}
-            autoPlay
-            muted
-            loop
-            playsInline
-            className="absolute top-1/2 left-1/2 min-w-full min-h-full w-auto h-auto -translate-x-1/2 -translate-y-1/2 object-cover z-0"
-          />
-        )
-      )}
-      <div
-        className="relative z-10 w-full h-full flex flex-col"
-        {...dropProps}
-      >
-        {renderChildren(element.children || [], element.id)}
-      </div>
-    </div>
-  );
+  return (
+    <div {...props} className="relative w-full h-full overflow-hidden">
+      {content.backgroundType === 'image' && content.backgroundImageUrl && (
+        <img
+          src={content.backgroundImageUrl}
+          alt="background"
+          className="absolute top-0 left-0 w-full h-full object-cover z-0"
+        />
+      )}
+      {content.backgroundType === 'video' && content.backgroundVideoUrl && (
+        isYouTube(content.backgroundVideoUrl) && youTubeSrc ? (
+          <iframe
+            src={youTubeSrc}
+            frameBorder="0"
+            allow="autoplay; encrypted-media"
+            allowFullScreen
+            title="Background Video"
+            className="absolute top-1/2 left-1/2 min-w-full min-h-full w-auto h-auto -translate-x-1/2 -translate-y-1/2 z-0"
+          ></iframe>
+        ) : (
+          <video
+            src={content.backgroundVideoUrl}
+            autoPlay
+            muted
+            loop
+            playsInline
+            className="absolute top-1/2 left-1/2 min-w-full min-h-full w-auto h-auto -translate-x-1/2 -translate-y-1/2 object-cover z-0"
+          />
+        )
+      )}
+      <div
+        className="relative z-10 w-full h-full flex flex-col"
+        {...dropProps}
+      >
+        {renderChildren(element.children || [], element.id)}
+      </div>
+    </div>
+  );
 };
 HeroSlideComponent.displayName = 'HeroSlideComponent';
 
 const HeroSlideProperties = ({ element, content, onContentChange }: { element: Element, content: any, onContentChange: (c: any) => void }) => {
-    return (
-        <>
-            <StyleInput
-                label="Background Type"
-                type="select"
-                value={content.backgroundType}
-                onChange={val => onContentChange({ ...content, backgroundType: val })}
-                options={[ { label: 'Image', value: 'image' }, { label: 'Video', value: 'video' } ]}
-            />
-            {content.backgroundType === 'image' ? (
-                <StyleInput label="Background Image URL" value={content.backgroundImageUrl} onChange={val => onContentChange({ ...content, backgroundImageUrl: val })} />
-            ) : (
-                <StyleInput label="Background Video URL" value={content.backgroundVideoUrl} onChange={val => onContentChange({ ...content, backgroundVideoUrl: val })} />
-            )}
-            <ChildElementSelector element={element} />
-        </>
-    );
+    return (
+        <>
+            <StyleInput
+                label="Background Type"
+                type="select"
+                value={content.backgroundType}
+                onChange={val => onContentChange({ ...content, backgroundType: val })}
+                options={[ { label: 'Image', value: 'image' }, { label: 'Video', value: 'video' } ]}
+            />
+            {content.backgroundType === 'image' ? (
+                <StyleInput label="Background Image URL" value={content.backgroundImageUrl} onChange={val => onContentChange({ ...content, backgroundImageUrl: val })} />
+            ) : (
+                <StyleInput label="Background Video URL" value={content.backgroundVideoUrl} onChange={val => onContentChange({ ...content, backgroundVideoUrl: val })} />
+            )}
+            <ChildElementSelector element={element} />
+        </>
+    );
 };
 HeroSlideProperties.displayName = 'HeroSlideProperties';

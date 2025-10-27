@@ -3,18 +3,16 @@
 import React, { useState, useEffect, ReactNode, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useRouter, usePathname } from 'next/navigation';
-import { CreateSiteModal } from './modal';
 import { clearSessionClient } from '@/actions/localStorage';
 import { Site, SiteStatus, FirestoreTimestamp, UserData } from '@/utils/types/dashboard';
 import toast, { Toaster } from 'react-hot-toast';
 
 import {
     PlusIcon, SettingsIcon, EditIcon, EyeIcon, MoreHorizontalIcon,
-    LayoutDashboardIcon, LayoutGridIcon, FileTextIcon, UserIcon, LogOutIcon, MenuIcon, XIcon,
-    BarChart3Icon, StarIcon, PencilIcon, MonitorPlayIcon, Loader2Icon, Trash2Icon,
-    SearchIcon, ListFilterIcon
+    LayoutDashboardIcon, LayoutGridIcon, FileTextIcon, UserIcon, LogOutIcon, MenuIcon, XIcon, StarIcon, PencilIcon, MonitorPlayIcon, Loader2Icon,
+    BarChart3Icon, Trash2Icon, SearchIcon
 } from 'lucide-react';
-import { AnalyticsCharts } from './AnalyticsCharts';
+import { CreateSiteModal } from '../dashboard/modal';
 
 const Sidebar = ({ isMobileMenuOpen, setIsMobileMenuOpen }: { isMobileMenuOpen: boolean; setIsMobileMenuOpen: (isOpen: boolean) => void; }) => {
     const router = useRouter();
@@ -40,7 +38,6 @@ const Sidebar = ({ isMobileMenuOpen, setIsMobileMenuOpen }: { isMobileMenuOpen: 
                     {navItems.map((item) => (
                         <button
                             key={item.label}
-                            type="button"
                             onClick={() => router.push(item.href)}
                             className={`flex items-center gap-3 w-full text-left px-3 py-2.5 rounded-lg transition-colors ${
                                 pathname === item.href ? 'bg-fuchsia-500/20 text-fuchsia-400' : 'hover:bg-gray-800'
@@ -89,7 +86,6 @@ const Sidebar = ({ isMobileMenuOpen, setIsMobileMenuOpen }: { isMobileMenuOpen: 
                                 {navItems.map((item) => (
                                     <button
                                         key={item.label}
-                                        type="button"
                                         onClick={() => {
                                             router.push(item.href);
                                             setIsMobileMenuOpen(false);
@@ -174,14 +170,12 @@ const RenameSiteModal = ({ isOpen, onClose, site, onSiteRenamed }: {
             }
 
             const updatedSite: Site = await response.json();
-            toast.success('Site renamed successfully!');
             onSiteRenamed(updatedSite);
             onClose();
 
         } catch (err: any) {
-            const msg = err.message || 'An unknown error occurred.';
-            setError(msg);
-            toast.error(msg);
+            setError(err.message);
+            toast.error(err.message || 'Failed to rename site.');
         } finally {
             setIsSubmitting(false);
         }
@@ -198,7 +192,7 @@ const RenameSiteModal = ({ isOpen, onClose, site, onSiteRenamed }: {
                     onClick={onClose}
                 >
                     <motion.div
-                        className="bg-gray-800 rounded-lg shadow-xl w-full max-w-md border border-gray-700"
+                        className="bg-gray-800 rounded-lg shadow-xl w-full max-w-lg border border-gray-700"
                         initial={{ scale: 0.9, opacity: 0 }}
                         animate={{ scale: 1, opacity: 1 }}
                         exit={{ scale: 0.9, opacity: 0 }}
@@ -225,13 +219,13 @@ const RenameSiteModal = ({ isOpen, onClose, site, onSiteRenamed }: {
                                 {error && <p className="text-sm text-red-400">{error}</p>}
                             </div>
                             <div className="px-6 py-4 bg-gray-800/50 border-t border-gray-700 flex justify-end gap-3 rounded-b-lg">
-                                <button type="button" onClick={onClose} className="px-4 py-2 rounded-lg bg-gray-700 text-sm font-semibold hover:bg-gray-600 transition-colors">
+                                <button type="button" onClick={onClose} className="px-4 py-2 rounded-lg bg-gray-700 text-sm font-semibold hover:bg-gray-600 transition-colors cursor-pointer">
                                     Cancel
                                 </button>
                                 <button
                                     type="submit"
                                     disabled={isSubmitting || newTitle === site?.title || !newTitle}
-                                    className="px-4 py-2 rounded-lg bg-fuchsia-600 text-sm font-semibold hover:bg-fuchsia-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 cursor-pointer"
+                                    className="px-4 py-2 rounded-lg bg-fuchsia-600 text-sm font-semibold hover:bg-fuchsia-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 text-white cursor-pointer"
                                 >
                                     {isSubmitting && <Loader2Icon className="w-4 h-4 animate-spin" />}
                                     Save Changes
@@ -272,15 +266,13 @@ const DeleteSiteModal = ({ isOpen, onClose, site, onSiteDeleted }: {
                 const { error } = await response.json();
                 throw new Error(error || 'Failed to delete site.');
             }
-            
-            toast.success('Site deleted successfully.');
+
             onSiteDeleted(site.id);
             onClose();
 
         } catch (err: any) {
-            const msg = err.message || 'An unknown error occurred.';
-            setError(msg);
-            toast.error(msg);
+            setError(err.message);
+            toast.error(err.message || 'Failed to delete site.');
         } finally {
             setIsSubmitting(false);
         }
@@ -316,7 +308,7 @@ const DeleteSiteModal = ({ isOpen, onClose, site, onSiteDeleted }: {
                                 {!error && <p className="text-sm text-gray-400">This will delete all posts, analytics, and settings associated with this site.</p>}
                             </div>
                             <div className="px-6 py-4 bg-gray-800/50 border-t border-gray-700 flex justify-end gap-3 rounded-b-lg">
-                                <button type="button" onClick={onClose} className="px-4 py-2 rounded-lg bg-gray-700 text-sm font-semibold hover:bg-gray-600 transition-colors">
+                                <button type="button" onClick={onClose} className="px-4 py-2 rounded-lg bg-gray-700 text-sm font-semibold hover:bg-gray-600 transition-colors cursor-pointer">
                                     Cancel
                                 </button>
                                 <button
@@ -336,7 +328,8 @@ const DeleteSiteModal = ({ isOpen, onClose, site, onSiteDeleted }: {
     );
 };
 
-const ActionDropdown = ({ site, onRename, onStatusChange, onDelete }: { 
+
+const SitesPageActionDropdown = ({ site, onRename, onStatusChange, onDelete }: {
     site: Site,
     onRename: (site: Site) => void,
     onStatusChange: (siteId: string, newStatus: SiteStatus) => void,
@@ -359,7 +352,6 @@ const ActionDropdown = ({ site, onRename, onStatusChange, onDelete }: {
     const handleAnalytics = () => router.push(`/analytics/${site.id}`);
     const handleUnpublish = () => onStatusChange(site.id, 'draft');
     const handleDelete = () => onDelete(site);
-
 
     const createAction = (handler: () => void) => () => {
         handler();
@@ -399,13 +391,14 @@ const ActionDropdown = ({ site, onRename, onStatusChange, onDelete }: {
     );
 };
 
-const SitesTable = ({ sites, onRename, onToggleFavourite, onStatusChange, onDelete }: { 
+const FullSitesTable = ({ sites, onRename, onToggleFavourite, onStatusChange, onDelete }: {
     sites: Site[],
     onRename: (site: Site) => void,
     onToggleFavourite: (siteId: string, currentStatus: boolean) => void,
     onStatusChange: (siteId: string, newStatus: SiteStatus) => void,
     onDelete: (site: Site) => void,
 }) => {
+    const router = useRouter();
     const formatDate = (timestamp: FirestoreTimestamp) => {
         if (timestamp && typeof timestamp._seconds === 'number') {
             return new Date(timestamp._seconds * 1000).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
@@ -442,11 +435,16 @@ const SitesTable = ({ sites, onRename, onToggleFavourite, onStatusChange, onDele
                                 </button>
                             </td>
                             <td className="px-6 py-4">
-                                <div className="font-medium text-white">{site.title}</div>
+                                <button 
+                                    onClick={() => router.push(`/creator-space/${site.id}`)} 
+                                    className="font-medium text-white text-left hover:underline cursor-pointer"
+                                >
+                                    {site.title}
+                                </button>
                                 {String(site.status).toLowerCase() === 'published' ? (
-                                    <a href={`https://${site.subdomain}.blog.io`} target="_blank" rel="noopener noreferrer" className="text-fuchsia-400 text-xs hover:underline">{site.subdomain}.blog.io</a>
+                                    <a href={`https://${site.subdomain}.blog.io`} target="_blank" rel="noopener noreferrer" className="block text-fuchsia-400 text-xs hover:underline">{site.subdomain}.blog.io</a>
                                 ) : (
-                                    <span className="text-gray-500 text-xs">{site.subdomain}.blog.io</span>
+                                    <span className="block text-gray-500 text-xs">{site.subdomain}.blog.io</span>
                                 )}
                             </td>
                             <td className="px-6 py-4"><StatusBadge status={site.status} /></td>
@@ -455,7 +453,7 @@ const SitesTable = ({ sites, onRename, onToggleFavourite, onStatusChange, onDele
                             <td className="px-6 py-4 text-gray-400">{formatDate(site.createdAt)}</td>
                             <td className="px-6 py-4 text-gray-400">{formatDate(site.lastPublishedAt)}</td>
                             <td className="px-6 py-4 text-right"><div className="flex justify-end">
-                                <ActionDropdown 
+                                <SitesPageActionDropdown 
                                     site={site} 
                                     onRename={onRename} 
                                     onStatusChange={onStatusChange}
@@ -470,174 +468,151 @@ const SitesTable = ({ sites, onRename, onToggleFavourite, onStatusChange, onDele
     );
 };
 
-const DashboardContent = ({ 
-    userData, 
-    displaySites,
-    handleSiteCreated, 
-    existingSubdomains, 
-    setIsModalOpen, 
-    onRename, 
-    onToggleFavourite, 
-    onStatusChange, 
-    onDelete,
-    searchTerm,
-    setSearchTerm,
-    filterStatus,
-    setFilterStatus,
-    sortBy,
-    setSortBy
-}: {
-    userData: UserData,
-    displaySites: Site[],
-    handleSiteCreated: (newSite: Site) => void,
-    existingSubdomains: string[],
-    setIsModalOpen: (isOpen: boolean) => void,
-    onRename: (site: Site) => void,
-    onToggleFavourite: (siteId: string, currentStatus: boolean) => void,
-    onStatusChange: (siteId: string, newStatus: SiteStatus) => void,
-    onDelete: (site: Site) => void,
-    searchTerm: string,
-    setSearchTerm: (term: string) => void,
-    filterStatus: string,
-    setFilterStatus: (status: string) => void,
-    sortBy: string,
-    setSortBy: (sort: string) => void,
+const StatCard = ({ title, value }: { title: string, value: number }) => (
+    <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5 }}
+        className="bg-gray-800/50 border border-gray-700 rounded-lg p-6 shadow-xl relative overflow-hidden"
+    >
+        <div className="absolute inset-0 bg-gradient-to-br from-gray-800/70 to-fuchsia-900/10 opacity-70 rounded-lg"></div>
+        <p className="text-gray-400 text-sm relative z-10">{title}</p>
+        <p className="text-3xl font-bold mt-1 relative z-10 text-white">{value.toLocaleString()}</p>
+    </motion.div>
+);
+
+const FilterControls = ({ searchQuery, setSearchQuery, filters, setFilters, sortBy, setSortBy }: {
+    searchQuery: string;
+    setSearchQuery: (query: string) => void;
+    filters: { status: string; isFavourite: string; };
+    setFilters: React.Dispatch<React.SetStateAction<{ status: string; isFavourite: string; }>>;
+    sortBy: string;
+    setSortBy: (sort: string) => void;
 }) => {
-    const router = useRouter();
-    const hasSites = (userData.sites || []).length > 0;
-    
+    const handleFilterChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+        const { name, value } = e.target;
+        setFilters(prev => ({ ...prev, [name]: value }));
+    };
+
     return (
-        <>
-            <motion.header
-                initial={{ opacity: 0, y: -20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.5 }}
-                className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4"
-            >
-                <div>
-                    <h2 className="text-3xl md:text-4xl font-bold">Welcome back, {userData.user?.firstName || 'Creator'}! 👋</h2>
-                    <p className="text-gray-400 mt-2">Here&apos;s a snapshot of your creative universe.</p>
-                </div>
-                <motion.button
-                    onClick={() => setIsModalOpen(true)}
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    className="bg-fuchsia-500 hover:bg-fuchsia-600 flex items-center gap-2 text-white font-semibold px-4 py-2 rounded-lg transition-colors"
-                >
-                    <PlusIcon className="w-5 h-5" /> <span className="hidden sm:inline">Create New Site</span>
-                </motion.button>
-            </motion.header>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                <StatCard title="Total Sites" value={userData.stats?.totalSites || 0} />
-                <StatCard title="Total Likes" value={userData.stats?.totalLikes || 0} />
-                <StatCard title="Total Views" value={userData.stats?.totalViews || 0} />
+        <div className="flex flex-col md:flex-row items-center justify-between gap-4 my-8">
+            <div className="relative w-full md:flex-grow">
+                <span className="absolute inset-y-0 left-0 flex items-center pl-3">
+                    <SearchIcon className="w-5 h-5 text-gray-500" />
+                </span>
+                <input
+                    type="text"
+                    placeholder="Search by title or subdomain..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full bg-gray-900 border border-gray-700 rounded-lg py-2.5 pl-10 pr-4 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-fuchsia-500"
+                />
             </div>
-
-            <section className="mt-12">
-                <div className="flex flex-col md:flex-row justify-between md:items-center mb-4 gap-4">
-                    <h3 className="text-2xl font-bold">My Sites</h3>
-                    {hasSites && (
-                        <button
-                            onClick={() => router.push('/sites')}
-                            className="cursor-pointer text-fuchsia-400 font-semibold py-2 px-4 rounded-lg hover:bg-fuchsia-500/10 transition-colors border border-fuchsia-500/30 text-sm md:text-base w-full md:w-auto"
-                        >
-                            View All My Sites
-                        </button>
-                    )}
-                </div>
-
-                {hasSites ? (
-                    <>
-                        <div className="flex flex-col md:flex-row gap-4 mb-4">
-                            <div className="relative flex-grow">
-                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">
-                                    <SearchIcon className="w-5 h-5" />
-                                </span>
-                                <input
-                                    type="text"
-                                    placeholder="Search by title or subdomain..."
-                                    value={searchTerm}
-                                    onChange={(e) => setSearchTerm(e.target.value)}
-                                    className="w-full bg-gray-900 border border-gray-700 rounded-lg pl-10 pr-4 py-2.5 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-fuchsia-500"
-                                />
-                            </div>
-                            <div className="flex gap-4">
-                                <div className="relative">
-                                    <select
-                                        value={filterStatus}
-                                        onChange={(e) => setFilterStatus(e.target.value)}
-                                        className="appearance-none w-full md:w-auto bg-gray-900 border border-gray-700 rounded-lg px-4 py-2.5 pr-10 text-white focus:outline-none focus:ring-2 focus:ring-fuchsia-500"
-                                    >
-                                        <option value="all">All Statuses</option>
-                                        <option value="published">Published</option>
-                                        <option value="draft">Draft</option>
-                                    </select>
-                                    <ListFilterIcon className="w-5 h-5 text-gray-500 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-                                </div>
-                                <div className="relative">
-                                    <select
-                                        value={sortBy}
-                                        onChange={(e) => setSortBy(e.target.value)}
-                                        className="appearance-none w-full md:w-auto bg-gray-900 border border-gray-700 rounded-lg px-4 py-2.5 pr-10 text-white focus:outline-none focus:ring-2 focus:ring-fuchsia-500"
-                                    >
-                                        <option value="createdAt_desc">Newest First</option>
-                                        <option value="createdAt_asc">Oldest First</option>
-                                        <option value="lastPublishedAt_desc">Last Published</option>
-                                        <option value="title_asc">Title (A-Z)</option>
-                                        <option value="views_desc">Most Views</option>
-                                        <option value="likes_desc">Most Likes</option>
-                                    </select>
-                                    <ListFilterIcon className="w-5 h-5 text-gray-500 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-                                </div>
-                            </div>
-                        </div>
-
-                        {displaySites.length > 0 ? (
-                            <SitesTable 
-                                sites={displaySites.slice(0, 10)} 
-                                onRename={onRename}
-                                onToggleFavourite={onToggleFavourite}
-                                onStatusChange={onStatusChange}
-                                onDelete={onDelete}
-                            />
-                        ) : (
-                            <div className="text-center py-12 bg-gray-800/50 border-2 border-dashed border-gray-700 rounded-lg mt-6">
-                                <h4 className="text-xl font-semibold">No sites match!</h4>
-                                <p className="text-gray-400 mt-2">Try adjusting your search or filter settings.</p>
-                            </div>
-                        )}
-                    </>
-                ) : (
-                    <div className="text-center py-12 bg-gray-800/50 border-2 border-dashed border-gray-700 rounded-lg mt-6">
-                        <h4 className="text-xl font-semibold">No sites yet!</h4>
-                        <p className="text-gray-400 mt-2">Click &quot;Create New Site&quot; to get started.</p>
-                    </div>
-                )}
-            </section>
-
-            <section className="mt-12">
-                <div className="flex items-center gap-2 mb-4">
-                    <BarChart3Icon className="text-fuchsia-400" />
-                    <h3 className="text-2xl font-bold">Analytics</h3>
-                </div>
-                <AnalyticsCharts />
-            </section>
-        </>
+            <div className="flex flex-col sm:flex-row items-center gap-4 w-full md:w-auto">
+                <select
+                    name="status"
+                    value={filters.status}
+                    onChange={handleFilterChange}
+                    className="w-full sm:w-auto bg-gray-900 border border-gray-700 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-fuchsia-500 cursor-pointer"
+                >
+                    <option value="all">All Statuses</option>
+                    <option value="published">Published</option>
+                    <option value="draft">Draft</option>
+                </select>
+                <select
+                    name="isFavourite"
+                    value={filters.isFavourite}
+                    onChange={handleFilterChange}
+                    className="w-full sm:w-auto bg-gray-900 border border-gray-700 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-fuchsia-500 cursor-pointer"
+                >
+                    <option value="all">All Favourites</option>
+                    <option value="yes">Favourites Only</option>
+                    <option value="no">Not Favourites</option>
+                </select>
+                <select
+                    name="sortBy"
+                    value={sortBy}
+                    onChange={(e) => setSortBy(e.target.value)}
+                    className="w-full sm:w-auto bg-gray-900 border border-gray-700 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-fuchsia-500 cursor-pointer"
+                >
+                    <option value="createdAt_desc">Newest First</option>
+                    <option value="createdAt_asc">Oldest First</option>
+                    <option value="lastPublishedAt_desc">Last Published</option>
+                    <option value="title_asc">Title (A-Z)</option>
+                    <option value="views_desc">Most Views</option>
+                    <option value="likes_desc">Most Likes</option>
+                </select>
+            </div>
+        </div>
     );
 };
 
-export default function DashboardPage() {
+
+const SitesSkeleton = () => {
+    const SkeletonTable = () => (
+        <div className="bg-gray-800/50 border border-gray-700 rounded-lg mt-6 overflow-x-auto">
+            <table className="w-full text-sm text-left animate-pulse">
+                <thead className="bg-gray-800 text-xs text-gray-400 uppercase">
+                    <tr>
+                        {Array.from({ length: 8 }).map((_, i) => <th key={i} scope="col" className="px-6 py-3"><div className="h-4 bg-gray-700 rounded w-3/4"></div></th>)}
+                    </tr>
+                </thead>
+                <tbody>
+                    {Array.from({ length: 5 }).map((_, i) => (
+                        <tr key={i} className="border-b border-gray-700">
+                            <td className="px-6 py-4"><div className="h-5 w-5 bg-gray-700 rounded-full"></div></td>
+                            <td className="px-6 py-4"><div className="h-4 bg-gray-700 rounded w-full mb-2"></div><div className="h-3 bg-gray-700 rounded w-1/2"></div></td>
+                            <td className="px-6 py-4"><div className="h-5 bg-gray-700 rounded-full w-20"></div></td>
+                            <td className="px-6 py-4"><div className="h-4 bg-gray-700 rounded w-12"></div></td>
+                            <td className="px-6 py-4"><div className="h-4 bg-gray-700 rounded w-12"></div></td>
+                            <td className="px-6 py-4"><div className="h-4 bg-gray-700 rounded w-24"></div></td>
+                            <td className="px-6 py-4"><div className="h-4 bg-gray-700 rounded w-24"></div></td>
+                            <td className="px-6 py-4"><div className="h-8 w-8 bg-gray-700 rounded-md ml-auto"></div></td>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+        </div>
+    );
+    const SkeletonCard = () => <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-6 animate-pulse"><div className="h-4 bg-gray-700 rounded w-1/3 mb-4"></div><div className="h-8 bg-gray-700 rounded w-1/2"></div></div>;
+
+
+    return (
+        <DashboardLayout>
+            <header className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4 animate-pulse">
+                <div>
+                    <div className="h-10 bg-gray-700 rounded w-48 mb-3"></div>
+                    <div className="h-5 bg-gray-700 rounded w-80"></div>
+                </div>
+                <div className="h-10 w-40 bg-gray-700 rounded-lg"></div>
+            </header>
+             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 mb-8"><SkeletonCard /><SkeletonCard /><SkeletonCard /></div>
+            <div className="flex flex-col md:flex-row items-center justify-between gap-4 my-8 animate-pulse">
+                <div className="h-11 bg-gray-700 rounded-lg w-full md:w-1/2 lg:w-1/3"></div>
+                <div className="flex items-center gap-4 w-full md:w-auto">
+                    <div className="h-11 bg-gray-700 rounded-lg w-full md:w-32"></div>
+                    <div className="h-11 bg-gray-700 rounded-lg w-full md:w-36"></div>
+                </div>
+            </div>
+            <section>
+                <SkeletonTable />
+            </section>
+        </DashboardLayout>
+    );
+};
+
+export default function SitesPage() {
     const [userData, setUserData] = useState<UserData>({ user: null, sites: [], recentPosts: [], stats: {} });
     const [loading, setLoading] = useState(true);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isRenameModalOpen, setIsRenameModalOpen] = useState(false);
     const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
     const [selectedSite, setSelectedSite] = useState<Site | null>(null);
-    const [searchTerm, setSearchTerm] = useState('');
-    const [filterStatus, setFilterStatus] = useState('all');
-    const [sortBy, setSortBy] = useState('createdAt_desc');
     const router = useRouter();
+
+    const [searchQuery, setSearchQuery] = useState('');
+    const [filters, setFilters] = useState({ status: 'all', isFavourite: 'all' });
+    const [sortBy, setSortBy] = useState('createdAt_desc');
 
     useEffect(() => {
         async function fetchData() {
@@ -649,7 +624,12 @@ export default function DashboardPage() {
                 if (!response.ok) { if (response.status === 401) clearSessionClient(); router.push('/login'); throw new Error('Failed to fetch data'); }
                 const data: UserData = await response.json();
                 setUserData(data);
-            } catch (error) { console.error(error); } finally { setLoading(false); }
+            } catch (error) { 
+                console.error(error); 
+                toast.error('Failed to fetch your data.');
+            } finally { 
+                setLoading(false); 
+            }
         }
         fetchData();
     }, [router]);
@@ -689,6 +669,7 @@ export default function DashboardPage() {
             sites: (prev.sites || []).map(s => s.id === updatedSite.id ? updatedSite : s)
         }));
         closeRenameModal();
+        toast.success('Site renamed successfully!');
     };
 
     const handleSiteDeleted = (siteId: string) => {
@@ -698,8 +679,9 @@ export default function DashboardPage() {
             stats: { ...prev.stats, totalSites: (prev.stats.totalSites || 1) - 1 }
         }));
         closeDeleteModal();
+        toast.success('Site deleted successfully!');
     };
-    
+
     const handleStatusChange = async (siteId: string, newStatus: SiteStatus) => {
         const originalSites = userData.sites;
         setUserData(prev => ({
@@ -721,17 +703,16 @@ export default function DashboardPage() {
                 ...prev,
                 sites: (prev.sites || []).map(s => s.id === siteId ? updatedSite : s)
             }));
-            toast.success(`Site ${newStatus === 'draft' ? 'unpublished' : 'published'}!`);
+            toast.success(newStatus === 'draft' ? 'Site unpublished.' : 'Site status updated.');
         } catch (error) {
             console.error(error);
             setUserData(prev => ({ ...prev, sites: originalSites }));
-            toast.error('Failed to update site status.');
+            toast.error('Failed to update status.');
         }
     };
 
     const handleToggleFavourite = async (siteId: string, currentStatus: boolean) => {
         const newStatus = !currentStatus;
-        const originalSites = userData.sites;
         setUserData(prev => ({
             ...prev,
             sites: (prev.sites || []).map(s => s.id === siteId ? { ...s, isFavourite: newStatus } : s)
@@ -754,8 +735,11 @@ export default function DashboardPage() {
             toast.success(newStatus ? 'Added to favourites!' : 'Removed from favourites.');
         } catch (error) {
             console.error(error);
-            setUserData(prev => ({ ...prev, sites: originalSites }));
-            toast.error('Failed to update favourite status.');
+            setUserData(prev => ({
+                ...prev,
+                sites: (prev.sites || []).map(s => s.id === siteId ? { ...s, isFavourite: currentStatus } : s)
+            }));
+            toast.error('Failed to update favourite.');
         }
     };
 
@@ -763,17 +747,25 @@ export default function DashboardPage() {
 
     const filteredAndSortedSites = React.useMemo(() => {
         if (!userData.sites) return [];
-    
+
         let filtered = userData.sites.filter(site => {
-            const searchMatch = site.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                                site.subdomain.toLowerCase().includes(searchTerm.toLowerCase());
-    
-            const statusMatch = filterStatus === 'all' || 
-                                String(site.status).toLowerCase() === filterStatus;
-    
-            return searchMatch && statusMatch;
+            const query = searchQuery.toLowerCase();
+            const matchesSearch =
+                site.title.toLowerCase().includes(query) ||
+                site.subdomain.toLowerCase().includes(query);
+
+            const matchesStatus =
+                filters.status === 'all' ||
+                String(site.status).toLowerCase() === filters.status;
+
+            const matchesFavourite =
+                filters.isFavourite === 'all' ||
+                (filters.isFavourite === 'yes' && site.isFavourite) ||
+                (filters.isFavourite === 'no' && !site.isFavourite);
+
+            return matchesSearch && matchesStatus && matchesFavourite;
         });
-    
+
         filtered.sort((a, b) => {
             switch (sortBy) {
                 case 'title_asc':
@@ -791,112 +783,90 @@ export default function DashboardPage() {
                     return (b.createdAt?._seconds || 0) - (a.createdAt?._seconds || 0);
             }
         });
-    
+
         return filtered;
-    
-    }, [userData.sites, searchTerm, filterStatus, sortBy]);
+
+    }, [userData.sites, searchQuery, filters, sortBy]);
 
 
-    if (loading) return <DashboardSkeleton />;
+    if (loading) return <SitesSkeleton />;
 
     return (
         <>
             <Toaster 
-                position="bottom-right"
+                position="top-center"
                 toastOptions={{
+                    className: '',
                     style: {
-                        background: '#1f2937',
-                        color: '#f9fafb',
-                        border: '1px solid #374151',
+                        background: '#333',
+                        color: '#fff',
                     },
                 }}
             />
             <CreateSiteModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} onSiteCreated={handleSiteCreated} existingSubdomains={existingSubdomains} />
             <RenameSiteModal isOpen={isRenameModalOpen} onClose={closeRenameModal} site={selectedSite} onSiteRenamed={handleSiteRenamed} />
             <DeleteSiteModal isOpen={isDeleteModalOpen} onClose={closeDeleteModal} site={selectedSite} onSiteDeleted={handleSiteDeleted} />
-            
+
             <DashboardLayout>
-                <DashboardContent
-                    userData={userData}
-                    displaySites={filteredAndSortedSites}
-                    handleSiteCreated={handleSiteCreated}
-                    existingSubdomains={existingSubdomains}
-                    setIsModalOpen={setIsModalOpen}
-                    onRename={openRenameModal}
-                    onToggleFavourite={handleToggleFavourite}
-                    onStatusChange={handleStatusChange}
-                    onDelete={openDeleteModal}
-                    searchTerm={searchTerm}
-                    setSearchTerm={setSearchTerm}
-                    filterStatus={filterStatus}
-                    setFilterStatus={setFilterStatus}
+                <motion.header
+                    initial={{ opacity: 0, y: -20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.5 }}
+                    className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4"
+                >
+                    <div>
+                        <h2 className="text-3xl md:text-4xl font-bold">My Sites</h2>
+                        <p className="text-gray-400 mt-2">Manage all your sites, analytics, and settings.</p>
+                    </div>
+                    <motion.button
+                        onClick={() => setIsModalOpen(true)}
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                        className="bg-fuchsia-500 hover:bg-fuchsia-600 flex items-center gap-2 text-white font-semibold px-4 py-2 rounded-lg transition-colors"
+                    >
+                        <PlusIcon className="w-5 h-5" /> <span className="hidden sm:inline">Create New Site</span>
+                    </motion.button>
+                </motion.header>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+                    <StatCard title="Total Sites" value={userData.stats?.totalSites || 0} />
+                    <StatCard title="Total Likes" value={userData.stats?.totalLikes || 0} />
+                    <StatCard title="Total Views" value={userData.stats?.totalViews || 0} />
+                </div>
+
+                <FilterControls
+                    searchQuery={searchQuery}
+                    setSearchQuery={setSearchQuery}
+                    filters={filters}
+                    setFilters={setFilters}
                     sortBy={sortBy}
                     setSortBy={setSortBy}
                 />
+
+                <section>
+                    {userData.sites?.length > 0 ? (
+                        filteredAndSortedSites.length > 0 ? (
+                            <FullSitesTable
+                                sites={filteredAndSortedSites}
+                                onRename={openRenameModal}
+                                onToggleFavourite={handleToggleFavourite}
+                                onStatusChange={handleStatusChange}
+                                onDelete={openDeleteModal}
+                            />
+                        ) : (
+                            <div className="text-center py-12 bg-gray-800/50 border-2 border-dashed border-gray-700 rounded-lg mt-6">
+                                <h4 className="text-xl font-semibold">No sites found</h4>
+                                <p className="text-gray-400 mt-2">Try adjusting your search or filter criteria.</p>
+                            </div>
+                        )
+                    ) : (
+                        <div className="text-center py-12 bg-gray-800/50 border-2 border-dashed border-gray-700 rounded-lg mt-6">
+                            <h4 className="text-xl font-semibold">No sites yet!</h4>
+                            <p className="text-gray-400 mt-2">Click &quot;Create New Site&quot; to get started.</p>
+                        </div>
+                    )}
+                </section>
             </DashboardLayout>
         </>
     );
 }
-
-const StatCard = ({ title, value }: { title: string, value: number }) => (
-    <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5 }}
-        className="bg-gray-800/50 border border-gray-700 rounded-lg p-6 shadow-xl relative overflow-hidden"
-    >
-        <div className="absolute inset-0 bg-gradient-to-br from-gray-800/70 to-fuchsia-900/10 opacity-70 rounded-lg"></div>
-        <p className="text-gray-400 text-sm relative z-10">{title}</p>
-        <p className="text-3xl font-bold mt-1 relative z-10 text-white">{value.toLocaleString()}</p>
-    </motion.div>
-);
-
-const SkeletonCard = () => <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-6 animate-pulse"><div className="h-4 bg-gray-700 rounded w-1/3 mb-4"></div><div className="h-8 bg-gray-700 rounded w-1/2"></div></div>;
-
-const SkeletonTable = () => (
-    <div className="bg-gray-800/50 border border-gray-700 rounded-lg mt-6 overflow-x-auto">
-        <table className="w-full text-sm text-left animate-pulse">
-            <thead className="bg-gray-800 text-xs text-gray-400 uppercase">
-                <tr>
-                    {Array.from({ length: 8 }).map((_, i) => <th key={i} scope="col" className="px-6 py-3"><div className="h-4 bg-gray-700 rounded w-3/4"></div></th>)}
-                </tr>
-            </thead>
-            <tbody>
-                {Array.from({ length: 3 }).map((_, i) => (
-                    <tr key={i} className="border-b border-gray-700">
-                        <td className="px-6 py-4"><div className="h-5 w-5 bg-gray-700 rounded-full"></div></td>
-                        <td className="px-6 py-4"><div className="h-4 bg-gray-700 rounded w-full mb-2"></div><div className="h-3 bg-gray-700 rounded w-1/2"></div></td>
-                        <td className="px-6 py-4"><div className="h-5 bg-gray-700 rounded-full w-20"></div></td>
-                        <td className="px-6 py-4"><div className="h-4 bg-gray-700 rounded w-12"></div></td>
-                        <td className="px-6 py-4"><div className="h-4 bg-gray-700 rounded w-12"></div></td>
-                        <td className="px-6 py-4"><div className="h-4 bg-gray-700 rounded w-24"></div></td>
-                        <td className="px-6 py-4"><div className="h-4 bg-gray-700 rounded w-24"></div></td>
-                        <td className="px-6 py-4"><div className="h-8 w-8 bg-gray-700 rounded-md ml-auto"></div></td>
-                    </tr>
-                ))}
-            </tbody>
-        </table>
-    </div>
-);
-
-const DashboardSkeleton = () => (
-    <DashboardLayout>
-        <header className="flex justify-between items-center mb-8 animate-pulse">
-            <div>
-                <div className="h-10 bg-gray-700 rounded w-72 md:w-96 mb-3"></div>
-                <div className="h-5 bg-gray-700 rounded w-64 md:w-80"></div>
-            </div>
-            <div className="h-10 w-40 bg-gray-700 rounded-lg hidden sm:block"></div>
-        </header>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6"><SkeletonCard /><SkeletonCard /><SkeletonCard /></div>
-        <section className="mt-12">
-            <div className="flex justify-between items-center animate-pulse">
-                <div className="h-8 bg-gray-700 rounded w-36"></div>
-            </div>
-            <SkeletonTable />
-        </section>
-        <section className="mt-12">
-            <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-6 h-96 animate-pulse"></div>
-        </section>
-    </DashboardLayout>
-);

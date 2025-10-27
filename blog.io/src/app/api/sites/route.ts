@@ -21,21 +21,28 @@ export async function GET(request: NextRequest) {
         const user = userQuery.docs[0].data();
 
         const sitesSnapshot = await dbAdmin.collection('sites').where('ownerId', '==', uid).get();
-        const sites = sitesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        const allSites = sitesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
         const postsSnapshot = await dbAdmin.collection('posts').where('authorId', '==', uid).orderBy('createdAt', 'desc').limit(5).get();
         const recentPosts = postsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
         const totalPostsSnapshot = await dbAdmin.collection('posts').where('authorId', '==', uid).get();
-        const totalViews = sites.reduce((acc, site) => acc + (site?.stats?.views || 0), 0);
+        
+        const totalViews = allSites.reduce((acc, site: any) => acc + (site?.stats?.views || 0), 0);
         
         const stats = {
-            totalSites: sites.length,
+            totalSites: allSites.length,
             totalPosts: totalPostsSnapshot.size,
             totalViews: totalViews,
         };
 
-        return NextResponse.json({ user, sites, recentPosts, stats });
+        const sortedSites = allSites.sort((a: any, b: any) => {
+            const timeA = a.createdAt?._seconds || 0;
+            const timeB = b.createdAt?._seconds || 0;
+            return timeB - timeA;
+        });
+
+        return NextResponse.json({ user, sites: sortedSites, recentPosts, stats });
 
     } catch (error) {
         console.error('Error fetching dashboard data:', error);
@@ -81,6 +88,7 @@ export async function POST(request: NextRequest) {
             type,
             template,
             createdAt: FieldValue.serverTimestamp(),
+            updatedAt: FieldValue.serverTimestamp(),
             stats: { views: 0, posts: 0 },
             status: 'draft'
         };

@@ -45,9 +45,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         if (!token) return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
 
         const { uid } = await verifyAuthToken(token);
-        const { content, pageStyles } = await request.json();
+        const { content, pageStyles, versionName } = await request.json();
 
-        if (!content || !pageStyles) return NextResponse.json({ message: 'Missing required fields' }, { status: 400 });
+        if (!content || !pageStyles || !versionName) return NextResponse.json({ message: 'Missing required fields' }, { status: 400 });
 
         const siteRef = dbAdmin.collection('sites').doc(siteId);
         const siteDoc = await siteRef.get();
@@ -59,6 +59,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         const historyRef = siteRef.collection('history').doc();
         await historyRef.set({
             content,
+            versionName,
+            uid,
             pageStyles,
             savedAt: FieldValue.serverTimestamp()
         });

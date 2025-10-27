@@ -13,8 +13,10 @@ import {
   PageContent, Element, ElementType, SiteData, PageStyles,
 } from './editor';
 import {
-  Menu, X, ChevronDown, Rows, Columns, Image as ImageIcon, Type, List as ListIcon, Video, Link as LinkIcon, Minus, Square,
-  Star, Sparkles, Settings, History, LucideProps, RectangleHorizontal, LayoutPanelLeft, UserSquare, FileText, BookImage, Layers, MessageSquare, PanelRight, Loader2, CheckCircle2, AlertCircle, Clock, Check, Code, Quote, GitBranch, MessageCircleQuestion, Footprints, Captions, ListOrdered, GalleryHorizontal, ArrowLeftCircle, ArrowRightCircle, GalleryThumbnails, Copy, SlidersHorizontal, Replace, ChevronsUpDown, GalleryVerticalEnd, Presentation
+  Menu, X, ChevronDown, Rows, Columns, Image as ImageIcon, Type, List as ListIcon, Video, Link as LinkIcon, Minus, Square, LayoutTemplate, UploadCloud,
+  Star, Sparkles, Settings, History, LucideProps, RectangleHorizontal, LayoutPanelLeft, UserSquare, FileText, BookImage, Layers, MessageSquare, PanelRight, Loader2, CheckCircle2, AlertCircle, Clock, Check, Code, Quote, GitBranch, MessageCircleQuestion, Footprints, Captions, ListOrdered, GalleryHorizontal, ArrowLeftCircle, ArrowRightCircle, GalleryThumbnails, Copy, SlidersHorizontal, Replace, ChevronsUpDown, GalleryVerticalEnd, Presentation, ExternalLink,
+  Undo2,
+  Eye
 } from 'lucide-react';
 import * as lucideIcons from 'lucide-react';
 
@@ -79,16 +81,23 @@ const apiClient = {
       if (!response.ok) throw new Error('Failed to fetch history');
       return response.json();
   },
-  saveVersion: async (siteId: string, data: { content: PageContent, pageStyles: PageStyles }): Promise<{ success: boolean }> => {
+  saveVersion: async (siteId: string, data: { content: PageContent, pageStyles: PageStyles, versionName: string }): Promise<{ success: boolean }> => {
       const token = getAuthToken();
       if (!token) throw new Error('Authentication token not found');
+
+      const payload = {
+          content: data.content,
+          pageStyles: data.pageStyles,
+          versionName: data.versionName,
+      };
+      
       const response = await fetch(`/api/sites/${siteId}/history`, {
           method: 'POST',
           headers: {
               'Authorization': `Bearer ${token}`,
               'Content-Type': 'application/json',
           },
-          body: JSON.stringify(data),
+          body: JSON.stringify(payload),
       });
       if (!response.ok) throw new Error('Failed to save version');
       return { success: true };
@@ -110,6 +119,7 @@ type EditorAction =
   | { type: 'UNDO' }
   | { type: 'REDO' }
   | { type: 'REVERT_TO_VERSION'; payload: { content: PageContent, pageStyles: PageStyles } }
+  | { type: 'WRAP_IN_COLUMNS'; payload: { elementId: string } }
   | { type: 'SET_PAGE_CONTENT'; payload: PageContent };;
 
 interface EditorState {
@@ -159,22 +169,25 @@ const editorReducer = produce((draft: EditorState, action: EditorAction) => {
   };
 
   const findAndTraverse = (elements: Element[], callback: (element: Element, parent?: Element) => boolean | void, parentElement?: Element): boolean => {
-    for (const element of elements) {
-      if (callback(element, parentElement)) return true;
-      if (element.children?.length) {
-        if (findAndTraverse(element.children, callback, element)) return true;
-      }
-      if (element.type === 'columns') {
-        try {
-          const content = JSON.parse(element.content);
-          for (const col of content.columns) {
-            if (findAndTraverse(col.children, callback, element)) return true;
-          }
-        } catch (e) {}
-      }
-    }
-    return false;
-  };
+    for (const element of elements) {
+      if (callback(element, parentElement)) return true;
+      if (element.children?.length) {
+        if (findAndTraverse(element.children, callback, element)) return true;
+      }
+      if (element.type === 'columns') {
+        try {
+          const content = JSON.parse(element.content);
+          for (const col of content.columns) {
+            if (findAndTraverse(col.children, callback, element)) {
+              element.content = JSON.stringify(content, null, 2);
+              return true;
+            }
+          }
+        } catch (e) {}
+      }
+    }
+    return false;
+  };
 
   switch (action.type) {
     case 'SET_PAGE_CONTENT': {
@@ -222,6 +235,46 @@ const editorReducer = produce((draft: EditorState, action: EditorAction) => {
       addHistoryEntry();
       break;
     }
+    case 'WRAP_IN_COLUMNS': {
+      const { elementId } = action.payload;
+
+      const findAndWrap = (elements: Element[]): boolean => {
+        for (let i = 0; i < elements.length; i++) {
+          const element = elements[i];
+          if (element.id === elementId) {
+            const newColumnsElement = createNewElement('columns') as Element;
+            const content = JSON.parse(newColumnsElement.content);
+            content.columns[0].children.push(element); 
+            newColumnsElement.content = JSON.stringify(content, null, 2);
+            
+            elements[i] = newColumnsElement;
+            draft.selectedElementId = newColumnsElement.id;
+            return true;
+          }
+
+          if (element.children && findAndWrap(element.children)) {
+            return true;
+          }
+
+          if (element.type === 'columns') {
+            try {
+              const content = JSON.parse(element.content);
+              for (const col of content.columns) {
+                if (findAndWrap(col.children)) {
+                  element.content = JSON.stringify(content, null, 2);
+                  return true;
+                }
+              }
+            } catch (e) {}
+          }
+        }
+        return false;
+      };
+
+      findAndWrap(draft.pageContent);
+      addHistoryEntry();
+      break;
+    }
     case 'MOVE_ELEMENT': {
       const { draggedId, targetParentId, targetIndex } = action.payload;
       let draggedElement: Element | null = null;
@@ -319,7 +372,7 @@ const editorReducer = produce((draft: EditorState, action: EditorAction) => {
       break;
     }
     case 'DELETE_ELEMENT': {
-      const findAndDelete = (elements: Element[], elementId: string): boolean => {
+      const findAndDelete = (elements: Element[], elementId: string): boolean => {
         const index = elements.findIndex(el => el.id === elementId);
         if (index !== -1) {
           elements.splice(index, 1);
@@ -370,6 +423,27 @@ const editorReducer = produce((draft: EditorState, action: EditorAction) => {
                 content.columns.forEach((col: { id: string, children: Element[] }) => {
                     col.id = getUniqueId('column_internal');
                     col.children = col.children.map((child: Element) => deepCopyAndAssignNewIds(child));
+                });
+                newElement.content = JSON.stringify(content, null, 2);
+            }
+            if (newElement.type === 'contact-form') {
+                const content = JSON.parse(newElement.content);
+                content.fields.forEach((field: { id: string }) => {
+                    field.id = getUniqueId('form-field');
+                });
+                newElement.content = JSON.stringify(content, null, 2);
+            }
+            if (newElement.type === 'navbar') {
+                const content = JSON.parse(newElement.content);
+                content.links.forEach((link: { id: string }) => {
+                    link.id = getUniqueId('link');
+                });
+                newElement.content = JSON.stringify(content, null, 2);
+            }
+            if (newElement.type === 'faq') {
+                const content = JSON.parse(newElement.content);
+                content.items.forEach((item: { id: string }) => {
+                    item.id = getUniqueId('faq-item');
                 });
                 newElement.content = JSON.stringify(content, null, 2);
             }
@@ -442,285 +516,361 @@ const editorReducer = produce((draft: EditorState, action: EditorAction) => {
 });
 
 const createNewElement = (type: ElementType): Element | Element[] => {
-    const id = getUniqueId(type);
-    const defaultStyles = { desktop: { default: {}, hover: {} }, tablet: { default: {}, hover: {} }, mobile: { default: {}, hover: {} } };
-    const baseElement: Omit<Element, 'id'> & { type: ElementType } = { type, styles: JSON.parse(JSON.stringify(defaultStyles)), children: [] };
-    
-    switch(type) {
-        case 'section': baseElement.styles.desktop.default = { minHeight: '100px', width: '100%', padding: '20px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px' }; break;
-        case 'box': baseElement.styles.desktop.default = { minHeight: '100px', width: '100%', padding: '20px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '16px' }; break;
-        case 'card': baseElement.styles.desktop.default = { width: '100%', padding: '20px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '16px', backgroundColor: '#ffffff', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)', borderRadius: '12px' }; break;
-        case 'video-right-section':
-            baseElement.name = "Video Right Section";
-            baseElement.content = JSON.stringify({ videoUrl: 'https://www.youtube.com/embed/dQw4w9WgXcQ' });
-            baseElement.styles.desktop.default = { width: '100%', padding: '20px', display: 'flex', gap: '20px', alignItems: 'stretch' };
-            break;
-        case 'video-left-section':
-            baseElement.name = "Video Left Section";
-            baseElement.content = JSON.stringify({ videoUrl: 'https://www.youtube.com/embed/dQw4w9WgXcQ' });
-            baseElement.styles.desktop.default = { width: '100%', padding: '20px', display: 'flex', gap: '20px', alignItems: 'stretch' };
-            break;
-        case 'right-image-section':
-            baseElement.name = 'Image Right Section';
-            baseElement.content = JSON.stringify({ imageSrc: 'https://placehold.co/600x400' });
-            baseElement.styles.desktop.default = { width: '100%', padding: '20px', display: 'flex', gap: '20px', alignItems: 'stretch' };
-            break;
-        case 'left-image-section':
-            baseElement.name = 'Image Left Section';
-            baseElement.content = JSON.stringify({ imageSrc: 'https://placehold.co/600x400' });
-            baseElement.styles.desktop.default = { width: '100%', padding: '20px', display: 'flex', gap: '20px', alignItems: 'stretch' };
-            break;
-        case 'horizontal-scroll':
-            baseElement.name = 'Horizontal Scroll';
-            baseElement.styles.desktop.default = { width: '100%', maxWidth: '100%', display: 'grid', gridAutoFlow: 'column', padding: '20px 0', position: 'relative' };
-            baseElement.children = [
-                createNewElement('preview-card') as Element,
-                createNewElement('preview-card') as Element,
-            ];
-            break;
-        case 'auto-scroll':
-            baseElement.name = 'Auto Scroll';
-            baseElement.styles.desktop.default = { width: '100%', maxWidth: '100%', position: 'relative', overflow: 'hidden', display: 'grid' };
-            baseElement.content = JSON.stringify({ delay: 3000 });
-            baseElement.children = [
-                createNewElement('preview-card') as Element,
-                createNewElement('preview-card') as Element,
-                createNewElement('preview-card') as Element,
-                createNewElement('preview-card') as Element,
-            ];
-            break;
-        case 'single-auto-scroll':
-            baseElement.name = 'Single Auto Scroll';
-            baseElement.styles.desktop.default = { width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center', position: 'relative', minHeight: '400px' };
-            baseElement.content = JSON.stringify({ delay: 3000, transition: 'fade' });
-            baseElement.children = [
-                createNewElement('detail-card') as Element,
-                createNewElement('detail-card') as Element,
-                createNewElement('profile-card') as Element,
-            ];
-            break;
-        case 'image-carousel':
-            baseElement.name = 'Image Carousel';
-            baseElement.styles.desktop.default = { width: '100%', height: '500px', position: 'relative', overflow: 'hidden'};
-            baseElement.content = JSON.stringify({ delay: 3000 });
-            baseElement.children = [
-                { ...(createNewElement('image') as Element), styles: { desktop: { default: { width: '100%', height: '100%', objectFit: 'cover' }}}},
-                { ...(createNewElement('image') as Element), content: 'https://placehold.co/1200x500/1e3a8a/ffffff', styles: { desktop: { default: { width: '100%', height: '100%', objectFit: 'cover' }}}},
-            ];
-            break;
-        case 'accordion':
-            baseElement.name = 'Accordion';
-            baseElement.content = JSON.stringify({ title: 'Click to Expand' });
-            baseElement.styles.desktop.default = { width: '100%', border: '1px solid #e5e7eb', borderRadius: '8px', color: '#111827' };
-            break;
-        case 'feature-grid':
-            baseElement.name = "Feature Grid Section";
-            baseElement.styles.desktop.default = { width: '100%', padding: '40px 20px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '32px' };
-            baseElement.content = JSON.stringify({ columnCount: 3 });
+    const id = getUniqueId(type);
+    const defaultStyles = { desktop: { default: {}, hover: {} }, tablet: { default: {}, hover: {} }, mobile: { default: {}, hover: {} } };
+    const baseElement: Omit<Element, 'id'> & { type: ElementType } = { type, styles: JSON.parse(JSON.stringify(defaultStyles)), children: [] };
+    
+    switch(type) {
+        case 'section': baseElement.styles.desktop.default = { minHeight: '100px', width: '100%', padding: '20px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px' }; break;
+        case 'box': baseElement.styles.desktop.default = { minHeight: '100px', width: '100%', padding: '20px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '16px' }; break;
+        case 'card': baseElement.styles.desktop.default = { width: '100%', padding: '20px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '16px', backgroundColor: '#ffffff', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)', borderRadius: '12px' }; break;
+        case 'video-right-section':
+            baseElement.name = "Video Right Section";
+            baseElement.content = JSON.stringify({
+                video: {
+                    url: 'https://www.youtube.com/embed/dQw4w9WgXcQ',
+                    autoplay: false,
+                    controls: true,
+                    loop: false,
+                    muted: false,
+                }
+            }, null, 2);
+            baseElement.styles.desktop.default = { width: '100%', padding: '20px', display: 'flex', gap: '20px', alignItems: 'stretch' };
+            baseElement.styles.mobile = { default: { flexDirection: 'column' } };
+            break;
+        case 'video-left-section':
+            baseElement.name = "Video Left Section";
+            baseElement.content = JSON.stringify({
+                video: {
+                    url: 'https://www.youtube.com/embed/dQw4w9WgXcQ',
+                    autoplay: false,
+                    controls: true,
+                    loop: false,
+                    muted: false,
+                }
+            }, null, 2);
+            baseElement.styles.desktop.default = { width: '100%', padding: '20px', display: 'flex', gap: '20px', alignItems: 'stretch' };
+            baseElement.styles.mobile = { default: { flexDirection: 'column' } };
+            break;
+        case 'right-image-section':
+            baseElement.name = 'Image Right Section';
+            baseElement.content = JSON.stringify({ imageSrc: 'https://placehold.co/600x400' });
+            baseElement.styles.desktop.default = { width: '100%', padding: '20px', display: 'flex', gap: '20px', alignItems: 'stretch' };
+            break;
+        case 'left-image-section':
+            baseElement.name = 'Image Left Section';
+            baseElement.content = JSON.stringify({ imageSrc: 'https://placehold.co/600x400' });
+            baseElement.styles.desktop.default = { width: '100%', padding: '20px', display: 'flex', gap: '20px', alignItems: 'stretch' };
+            break;
+        case 'horizontal-scroll':
+            baseElement.name = 'Horizontal Scroll';
+            baseElement.styles.desktop.default = { width: '100%', maxWidth: '100%', display: 'grid', gridAutoFlow: 'column', padding: '20px 0', position: 'relative' };
+            baseElement.children = [
+                createNewElement('preview-card') as Element,
+                createNewElement('preview-card') as Element,
+            ];
+            break;
+        case 'auto-scroll':
+            baseElement.name = 'Auto Scroll';
+            baseElement.styles.desktop.default = { width: '100%', maxWidth: '100%', position: 'relative', overflow: 'hidden', display: 'grid' };
+            baseElement.content = JSON.stringify({ delay: 3000 });
+            baseElement.children = [
+                createNewElement('preview-card') as Element,
+                createNewElement('preview-card') as Element,
+                createNewElement('preview-card') as Element,
+                createNewElement('preview-card') as Element,
+            ];
+            break;
+        case 'single-auto-scroll':
+            baseElement.name = 'Single Auto Scroll';
+            baseElement.styles.desktop.default = { width: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center', position: 'relative', minHeight: '400px' };
+            baseElement.content = JSON.stringify({ delay: 3000, transition: 'fade' });
+            baseElement.children = [
+                createNewElement('detail-card') as Element,
+                createNewElement('detail-card') as Element,
+                createNewElement('profile-card') as Element,
+            ];
+            break;
+        case 'image-carousel':
+            baseElement.name = 'Image Carousel';
+            baseElement.styles.desktop.default = { width: '100%', height: '500px', position: 'relative', overflow: 'hidden'};
+            baseElement.content = JSON.stringify({ delay: 3000 });
+            baseElement.children = [
+                { ...(createNewElement('image') as Element), styles: { desktop: { default: { width: '100%', height: '100%', objectFit: 'cover' }}}},
+                { ...(createNewElement('image') as Element), content: 'https://placehold.co/1200x500/1e3a8a/ffffff', styles: { desktop: { default: { width: '100%', height: '100%', objectFit: 'cover' }}}},
+            ];
+            break;
+        case 'accordion':
+            baseElement.name = 'Accordion';
+            baseElement.content = JSON.stringify({ title: 'Click to Expand' });
+            baseElement.styles.desktop.default = { width: '100%', border: '1px solid #e5e7eb', borderRadius: '8px', color: '#111827' };
+            break;
+        case 'feature-grid':
+            baseElement.name = "Feature Grid Section";
+            baseElement.styles.desktop.default = { width: '100%', padding: '40px 20px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '32px' };
+            baseElement.content = JSON.stringify({ columnCount: 3 });
 
-            const gridContainer = createNewElement('box') as Element;
-            gridContainer.name = "Features Container";
-            gridContainer.styles.desktop.default = {
-                width: '100%',
-                display: 'grid',
-                gridTemplateColumns: 'repeat(3, 1fr)',
-                gap: '20px'
-            };
-            gridContainer.children = [
-                createNewElement('feature-block') as Element,
-                createNewElement('feature-block') as Element,
-                createNewElement('feature-block') as Element,
-            ];
+            const gridContainer = createNewElement('box') as Element;
+            gridContainer.name = "Features Container";
+            gridContainer.styles.desktop.default = {
+                width: '100%',
+                display: 'grid',
+                gridTemplateColumns: 'repeat(3, 1fr)',
+                gap: '20px'
+            };
+            gridContainer.children = [
+                createNewElement('feature-block') as Element,
+                createNewElement('feature-block') as Element,
+                createNewElement('feature-block') as Element,
+            ];
 
-            baseElement.children = [
-                { ...(createNewElement('heading') as Element), content: '<h2>Our Amazing Features</h2>' },
-                gridContainer
-            ];
-            break;
-        case 'feature-block':
-            baseElement.content = JSON.stringify({ icon: 'Star', title: 'Feature Title', text: 'Describe the feature in a few words.'});
-            baseElement.styles.desktop.default = { display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: '12px', padding: '24px', borderRadius: '8px', border: '1px solid #e5e7eb' };
-            break;
-        case 'step-block':
-        baseElement.name = 'Step Block';
-        baseElement.styles.desktop.default = {
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            textAlign: 'center',
-            gap: '12px',
-            padding: '0 16px',
-            flex: '0 1 300px',
-            minWidth: '200px',
-        };
-        baseElement.children = [
-            {
-              ...(createNewElement('paragraph') as Element),
-              content: '<p>01</p>',
-              name: 'Step Number',
-              styles: {
-                ...JSON.parse(JSON.stringify(defaultStyles)),
-                desktop: { default: { display: 'flex', alignItems: 'center', justifyContent: 'center', width: '48px', height: '48px', borderRadius: '50%', backgroundColor: '#eef2ff', color: '#4338ca', fontWeight: 'bold', fontSize: '1.25rem', marginBottom: '16px' } }
-              }
-            },
-            {
-              ...(createNewElement('heading') as Element),
-              content: '<h3>Step Title</h3>',
-              name: 'Step Title',
-              styles: {
-                ...JSON.parse(JSON.stringify(defaultStyles)),
-                desktop: { default: { fontSize: '1.25rem', fontWeight: 'bold', color: '#111827' } }
-              }
-            },
-            {
-              ...(createNewElement('paragraph') as Element),
-              content: '<p>Explain the step here in a few words.</p>',
-              name: 'Step Description',
-              styles: {
-                ...JSON.parse(JSON.stringify(defaultStyles)),
-                desktop: { default: { fontSize: '1rem', color: '#6b7280' } }
-              }
-            }
-        ];
-        break;
-        case 'step-connector':
-            baseElement.name = 'Step Connector';
-            baseElement.styles.desktop.default = {
-                flex: '1',
-                alignSelf: 'flex-start',
-                marginTop: '24px',
-                minWidth: '20px',
-                borderTop: '2px solid #e5e7eb'
-            }
-            break;
-        case 'steps':
-        baseElement.name = 'Steps Section';
-        baseElement.content = JSON.stringify({ connectorType: 'solid' });
-        baseElement.styles.desktop.default = { width: '100%', padding: '40px 20px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '32px' };
+            baseElement.children = [
+                { ...(createNewElement('heading') as Element), content: '<h2>Our Amazing Features</h2>' },
+                gridContainer
+            ];
+            break;
+        case 'feature-block':
+            baseElement.content = JSON.stringify({ icon: 'Star', title: 'Feature Title', text: 'Describe the feature in a few words.'});
+            baseElement.styles.desktop.default = { display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: '12px', padding: '24px', borderRadius: '8px', border: '1px solid #e5e7eb' };
+            break;
+        case 'step-block':
+        baseElement.name = 'Step Block';
+        baseElement.styles.desktop.default = {
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            textAlign: 'center',
+            gap: '12px',
+            padding: '0 16px',
+            flex: '0 1 300px',
+            minWidth: '200px',
+            overflow: 'hidden',
+        };
+        baseElement.children = [
+            {
+                ...(createNewElement('paragraph') as Element),
+                content: '<p>01</p>',
+                name: 'Step Number',
+                styles: {
+                    ...JSON.parse(JSON.stringify(defaultStyles)),
+                    desktop: { default: { display: 'flex', alignItems: 'center', justifyContent: 'center', width: '48px', height: '48px', borderRadius: '50%', backgroundColor: '#eef2ff', color: '#4338ca', fontWeight: 'bold', fontSize: '1.25rem', marginBottom: '16px' } }
+                }
+            },
+            {
+                ...(createNewElement('heading') as Element),
+                content: '<h3>Step Title</h3>',
+                name: 'Step Title',
+                styles: {
+                    ...JSON.parse(JSON.stringify(defaultStyles)),
+                    desktop: { default: { fontSize: '1.25rem', fontWeight: 'bold', color: '#111827' } }
+                }
+            },
+            {
+                ...(createNewElement('paragraph') as Element),
+                content: '<p>Explain the step here in a few words.</p>',
+                name: 'Step Description',
+                styles: {
+                    ...JSON.parse(JSON.stringify(defaultStyles)),
+                    desktop: { default: { fontSize: '1rem', color: '#6b7280' } }
+                }
+            }
+        ];
+        break;
+        case 'step-connector':
+            baseElement.name = 'Step Connector';
+            baseElement.styles.desktop.default = {
+                flex: '1',
+                minWidth: '100px',
+                height: '5px',
+                backgroundColor: '#e5e7eb'
+            }
+            break;
+        case 'steps':
+        baseElement.name = 'Steps Section';
+        baseElement.content = JSON.stringify({ connectorType: 'solid' });
+        baseElement.styles.desktop.default = { width: '100%', padding: '40px 20px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '32px' };
 
-        const createStep = (stepNumber: number): Element => {
-          const step = createNewElement('step-block') as Element;
-          if (step.children && step.children[0]) {
-            step.children[0].content = `<p>${String(stepNumber).padStart(2, '0')}</p>`;
-          }
-          return step;
-        }
+        const createStep = (stepNumber: number): Element => {
+            const step = createNewElement('step-block') as Element;
+            if (step.children && step.children[0]) {
+            step.children[0].content = `<p>${String(stepNumber).padStart(2, '0')}</p>`;
+            }
+            return step;
+        }
 
-        const stepsContainer = createNewElement('box') as Element;
-        stepsContainer.name = "Steps Container";
-        stepsContainer.styles.desktop.default = { width: '100%', display: 'flex', flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'center' };
-        stepsContainer.children = [
-            createStep(1),
-            createNewElement('step-connector') as Element,
-            createStep(2),
-            createNewElement('step-connector') as Element,
-            createStep(3),
-        ];
+        const stepsContainer = createNewElement('box') as Element;
+        stepsContainer.name = "Steps Container";
+        stepsContainer.styles.desktop.default = { width: '100%', display: 'flex', flexDirection: 'row', alignItems: 'center', justifyContent: 'center' };
+        stepsContainer.children = [
+            createStep(1),
+            createNewElement('step-connector') as Element,
+            createStep(2),
+            createNewElement('step-connector') as Element,
+            createStep(3),
+        ];
 
-        baseElement.children = [
-            { ...(createNewElement('heading') as Element), content: '<h2>Get Started in 3 Easy Steps</h2>' },
-            stepsContainer
-        ];
-        break;
-        case 'testimonial':
-            baseElement.content = JSON.stringify({ avatar: 'https://placehold.co/100x100', quote: 'This is an amazing product!', name: 'Jane Doe', title: 'CEO, Company' });
-            baseElement.styles.desktop.default = { width: '100%', maxWidth: '600px', backgroundColor: '#ffffff', color: '#111827', padding: '24px', borderRadius: '12px', display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: '16px' };
-            break;
-        case 'faq':
-            baseElement.content = JSON.stringify({ items: [{id: getUniqueId('faq-item'), question: 'Is this a question?', answer: 'Yes, and this is the answer.', questionColor: '#111827', answerColor: '#4B5563'}]});
-            baseElement.styles.desktop.default = { width: '100%', maxWidth: '700px' };
-            break;
-        case 'preview-card':
-            baseElement.type = 'card';
-            baseElement.name = "Preview Card";
-            baseElement.styles.desktop.default = { width: '350px', flexShrink: 0, alignSelf: 'center', backgroundColor: '#ffffff', borderRadius: '12px', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)', overflow: 'hidden', color: '#111827', padding: '0px', alignItems: 'flex-start' };
-            baseElement.children = [
-                {...createNewElement('image') as Element, content: 'https://placehold.co/400x250', styles: {desktop: {default: {width: '100%', borderRadius: '0px', alignSelf: 'stretch'}}}},
-                {...createNewElement('box') as Element, children: [
-                    {...createNewElement('heading') as Element, content: '<h3>Preview Title</h3>'},
-                    {...createNewElement('paragraph') as Element, content: '<p>This is a short description for the preview card.</p>'}
-                ], styles: {desktop: {default: {padding: '16px'}}}}
-            ]
-            break;
-        case 'detail-card':
-            baseElement.type = 'card';
-            baseElement.name = "Detail Card";
-            baseElement.styles.desktop.default = { width: '350px', alignSelf: 'center', backgroundColor: '#ffffff', borderRadius: '12px', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)', padding: '24px', color: '#111827' };
-            baseElement.children = [
-                {...createNewElement('heading') as Element, content: '<h3>Detail Card</h3>'},
-                {...createNewElement('paragraph') as Element, content: '<p>More information here...</p>'},
-            ];
-            break;
-        case 'profile-card':
-            baseElement.styles.desktop.default = { display: 'flex', alignItems: 'center', gap: '16px', width: '350px', alignSelf: 'center', backgroundColor: '#ffffff', borderRadius: '12px', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)', padding: '24px', color: '#111827' };
-            baseElement.content = JSON.stringify({ profileImage: 'https://placehold.co/100x100', name: 'Jane Doe', title: 'UI/UX Designer', handle: '@janedoe' });
-            break;
-        case 'columns':
-            baseElement.styles.desktop.default = { width: '100%', padding: '20px', display: 'flex', gap: '20px' };
-            baseElement.content = JSON.stringify({ columns: [{ id: getUniqueId('column_internal'), children: [] }, { id: getUniqueId('column_internal'), children: [] }] }, null, 2);
-            break;
-        case 'heading': baseElement.content = '<h1>Enter Heading Text...</h1>'; baseElement.styles.desktop.default = { fontSize: '2.25rem', fontWeight: 'bold', color: 'var(--text)', width: '100%', textAlign: 'center' }; break;
-        case 'paragraph': baseElement.content = '<p>Enter your paragraph text here.</p>'; baseElement.styles.desktop.default = { fontSize: '1rem', color: '#4b5563', lineHeight: 1.6, width: '100%', textAlign: 'center' }; break;
-        case 'gallery':
-            baseElement.content = JSON.stringify({ columns: 3, images: ['https://placehold.co/600x400/4f46e5/ffffff', 'https://placehold.co/600x400/1e3a8a/ffffff', 'https://placehold.co/600x400/3730a3/ffffff'] }, null, 2);
-            baseElement.styles.desktop.default = { width: '100%', padding: '20px', display: 'grid', gap: '16px' };
-            break;
-        case 'footer':
-            baseElement.content = JSON.stringify({ text: `© ${new Date().getFullYear()} Your Company. All rights reserved.` }, null, 2);
-            baseElement.styles.desktop.default = { width: '100%', padding: '40px 20px', backgroundColor: '#111827', color: '#9ca3af', textAlign: 'center' };
-            break;
-        case 'navbar':
-            baseElement.content = JSON.stringify({ logo: { type: 'image', src: "https://placehold.co/100x40/FFFFFF/1a202c?text=Logo", text: "My Site", alt: "Logo" }, links: [{ id: getUniqueId('link'), label: "Home", href: "#" }], cta: { label: "Sign Up", href: "#", enabled: true }}, null, 2);
-            baseElement.styles.desktop.default = { width: '100%', backgroundColor: "#fff", color: "#111827", padding: "1rem 2rem", boxShadow: '0 2px 4px rgba(0,0,0,0.05)' };
-            break;
-        case 'image':
-            baseElement.content = 'https://placehold.co/600x400';
-            baseElement.styles.desktop.default = { width: 'auto', maxWidth: '100%', height: 'auto', borderRadius: '8px', alignSelf: 'center' };
-            break;
-        case 'video':
-            baseElement.content = 'https://www.youtube.com/embed/dQw4w9WgXcQ';
-            baseElement.styles.desktop.default = { width: '100%', aspectRatio: '16 / 9' };
-            break;
-        case 'divider':
-            baseElement.styles.desktop.default = { width: '100%', height: '1px', backgroundColor: '#e5e7eb', margin: '16px 0' };
-            break;
-        case 'contact-form':
-            baseElement.content = JSON.stringify({ fields: [{label: 'Name', type: 'text'}, {label: 'Email', type: 'email'}], buttonText: 'Submit' });
-            baseElement.styles.desktop.default = { width: '100%', maxWidth: '500px', display: 'flex', flexDirection: 'column', gap: '16px', color: '#111827' };
-            break;
-        case 'button':
-            baseElement.content = 'Click Me';
-            baseElement.styles.desktop.default = { backgroundColor: 'var(--primary)', color: '#fff', padding: '10px 20px', borderRadius: '8px', border: 'none', cursor: 'pointer', alignSelf: 'center' };
-            baseElement.styles.desktop.hover = { backgroundColor: '#4338ca' };
-            break;
-        case 'hero':
-            baseElement.name = 'Hero Section';
-            baseElement.styles.desktop.default = { width: '100%', height: '500px', position: 'relative', display: 'flex', color: '#ffffff'};
-            baseElement.content = JSON.stringify({
-                backgroundType: 'image',
-                backgroundImageUrl: 'https://placehold.co/1200x500/4f46e5/ffffff',
-                backgroundVideoUrl: '',
-                contentPosition: 'center-middle'
-            });
-            baseElement.children = [
-                {...(createNewElement('heading') as Element), content: '<h1>Your Big Idea</h1>', styles: {desktop:{default:{color: '#ffffff', fontSize: '3rem'}}}},
-                {...(createNewElement('paragraph') as Element), content: '<p>Explain it in a few words.</p>', styles: {desktop:{default:{color: '#eeeeee', maxWidth: '600px', fontSize: '1.25rem'}}}},
-                {...(createNewElement('button') as Element), content: 'Get Started', styles: {desktop:{default:{backgroundColor: '#ffffff', color: 'var(--primary)', alignSelf: 'center'}}}},
-            ];
-            break;
-        case 'hero-slider':
-            baseElement.name = 'Hero Slider';
-            baseElement.styles.desktop.default = { width: '100%', height: '500px', position: 'relative', overflow: 'hidden', color: '#ffffff'};
-            baseElement.content = JSON.stringify({ delay: 4000 });
-            baseElement.children = [
-                createNewElement('hero') as Element,
-                createNewElement('hero') as Element,
-            ];
-            break;
-        case 'ordered-list': baseElement.content = `<ol><li>List Item 1</li><li>List Item 2</li></ol>`; baseElement.styles.desktop.default = { paddingLeft: '40px', color: '#4b5563', width: '100%' }; break;
-        case 'unordered-list': baseElement.content = `<ul><li>List Item 1</li><li>List Item 2</li></ul>`; baseElement.styles.desktop.default = { paddingLeft: '40px', color: '#4b5563', width: '100%' }; break;
-    }
-    return { ...baseElement, id };
+        baseElement.children = [
+            { ...(createNewElement('heading') as Element), content: '<h2>Get Started in 3 Easy Steps</h2>' },
+            stepsContainer
+        ];
+        break;
+        case 'testimonial':
+            baseElement.content = JSON.stringify({ avatar: 'https://placehold.co/100x100', quote: 'This is an amazing product!', name: 'Jane Doe', title: 'CEO, Company' });
+            baseElement.styles.desktop.default = { margin: '0 auto', width: '100%', maxWidth: '600px', backgroundColor: '#ffffff', color: '#111827', padding: '24px', borderRadius: '12px', display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: '16px' };
+            break;
+        case 'faq':
+            baseElement.content = JSON.stringify({ items: [{id: getUniqueId('faq-item'), question: 'Is this a question?', answer: 'Yes, and this is the answer.', questionColor: '#111827', answerColor: '#4B5563'}]});
+            baseElement.styles.desktop.default = { width: '100%', maxWidth: '700px' };
+            break;
+        case 'preview-card':
+            baseElement.type = 'card';
+            baseElement.name = "Preview Card";
+            baseElement.styles.desktop.default = { margin: '0 auto', width: '350px', flexShrink: 0, alignSelf: 'center', backgroundColor: '#ffffff', borderRadius: '12px', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)', overflow: 'hidden', color: '#111827', padding: '0px', alignItems: 'flex-start' };
+            baseElement.children = [
+                {...createNewElement('image') as Element, content: 'https://placehold.co/400x250', styles: {desktop: {default: {width: '100%', borderRadius: '0px', alignSelf: 'stretch'}}}},
+                {...createNewElement('box') as Element, children: [
+                    {...createNewElement('heading') as Element, content: '<h3>Preview Title</h3>'},
+                    {...createNewElement('paragraph') as Element, content: '<p>This is a short description for the preview card.</p>'}
+                ], styles: {desktop: {default: {padding: '16px'}}}}
+            ]
+            break;
+        case 'detail-card':
+            baseElement.type = 'card';
+            baseElement.name = "Detail Card";
+            baseElement.styles.desktop.default = { margin: '0 auto', width: '350px', alignSelf: 'center', backgroundColor: '#ffffff', borderRadius: '12px', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)', padding: '24px', color: '#111827' };
+            baseElement.children = [
+                {...createNewElement('heading') as Element, content: '<h3>Detail Card</h3>'},
+                {...createNewElement('paragraph') as Element, content: '<p>More information here...</p>'},
+            ];
+            break;
+        case 'profile-card':
+        baseElement.name = "Profile Card";
+        baseElement.styles.desktop.default = { margin: '0 auto', display: 'flex', alignItems: 'center', gap: '16px', width: '350px', alignSelf: 'center', backgroundColor: '#ffffff', borderRadius: '12px', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)', padding: '24px', color: '#111827' };
+        baseElement.content = JSON.stringify({});
+
+        const profileImageElement = createNewElement('image') as Element;
+        profileImageElement.content = 'https://placehold.co/100x100';
+        profileImageElement.styles.desktop.default = {
+            width: '80px',
+            height: '80px',
+            borderRadius: '50%',
+            flexShrink: 0,
+            objectFit: 'cover',
+            margin: '0',
+        };
+
+        const textBoxElement = {
+            ...(createNewElement('box') as Element),
+            styles: { desktop: { default: { display: 'flex', flexDirection: 'column', gap: '4px', padding: '0px', minHeight: 'auto' } } },
+            children: [
+                { ...(createNewElement('heading') as Element), content: '<h3>Jane Doe</h3>', styles: { desktop: { default: { fontSize: '1.25rem', fontWeight: 'bold', color: '#111827', textAlign: 'left', margin: '0' } } } },
+                { ...(createNewElement('paragraph') as Element), content: '<p>UI/UX Designer</p>', styles: { desktop: { default: { fontSize: '1rem', color: '#4f46e5', textAlign: 'left', lineHeight: 1.2, margin: '0' } } } },
+                { ...(createNewElement('paragraph') as Element), content: '<p>@janedoe</p>', styles: { desktop: { default: { fontSize: '0.875rem', color: '#6b7280', textAlign: 'left', lineHeight: 1.2, margin: '0' } } } },
+            ]
+        };
+
+        baseElement.children = [
+            profileImageElement,
+            textBoxElement
+        ];
+        break;
+        case 'columns':
+            baseElement.styles.desktop.default = { width: '100%', padding: '20px', display: 'flex', gap: '20px' };
+            baseElement.content = JSON.stringify({ columns: [{ id: getUniqueId('column_internal'), children: [] }, { id: getUniqueId('column_internal'), children: [] }] }, null, 2);
+            break;
+        case 'heading': baseElement.content = '<h1>Enter Heading Text...</h1>'; baseElement.styles.desktop.default = { fontSize: '2.25rem', fontWeight: 'bold', color: 'var(--text)', width: '100%', textAlign: 'center' }; break;
+        case 'paragraph': baseElement.content = '<p>Enter your paragraph text here.</p>'; baseElement.styles.desktop.default = { fontSize: '1rem', color: '#4b5563', lineHeight: 1.6, width: '100%', textAlign: 'center' }; break;
+        case 'gallery':
+            baseElement.content = JSON.stringify({ columns: 3, images: ['https://placehold.co/600x400/4f46e5/ffffff', 'https://placehold.co/600x400/1e3a8a/ffffff', 'https://placehold.co/600x400/3730a3/ffffff'] }, null, 2);
+            baseElement.styles.desktop.default = { width: '100%', padding: '20px', display: 'grid', gap: '16px' };
+            break;
+        case 'footer':
+            baseElement.styles.desktop.default = { width: '100%', padding: '40px 20px', backgroundColor: '#111827', color: '#9ca3af', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px' };
+            const footerText = createNewElement('paragraph') as Element;
+            footerText.content = `<p>© ${new Date().getFullYear()} Your Company. All rights reserved.</p>`;
+            footerText.styles.desktop.default = { color: '#9ca3af', fontSize: '0.875rem' };
+            baseElement.children = [footerText];
+            break;
+        case 'navbar':
+            baseElement.content = JSON.stringify({ 
+                logo: { type: 'image', src: "https://placehold.co/100x40/FFFFFF/1a202c?text=Logo", text: "My Site", alt: "Logo" }, 
+                links: [{ id: getUniqueId('link'), label: "Home", href: "#" }], 
+                linksPosition: 'right',
+                cta: { label: "Sign Up", href: "#", enabled: true }
+            }, null, 2);
+            baseElement.styles.desktop.default = { width: '100%', backgroundColor: "#fff", color: "#111827", padding: "1rem 2rem", boxShadow: '0 2px 4px rgba(0,0,0,0.05)' };
+            break;
+        case 'image':
+            baseElement.content = 'https://placehold.co/600x400';
+            baseElement.styles.desktop.default = { display: 'block', margin: '0 auto', width: 'auto', maxWidth: '100%', height: 'auto', borderRadius: '8px' };
+            break;
+        case 'video':
+            baseElement.content = JSON.stringify({
+                url: 'https://www.youtube.com/embed/dQw4w9WgXcQ',
+                autoplay: false,
+                controls: true,
+                loop: false,
+                muted: false,
+            }, null, 2);
+            baseElement.styles.desktop.default = { display: 'block', margin: '0 auto', width: '100%', aspectRatio: '16 / 9' };
+            break;
+        case 'divider':
+            baseElement.styles.desktop.default = { width: '100%', height: '1px', backgroundColor: '#e5e7eb', margin: '16px 0' };
+            break;
+        case 'contact-form':
+        baseElement.content = JSON.stringify({
+            fields: [
+            { id: getUniqueId('form-field'), label: 'Name', type: 'text' },
+            { id: getUniqueId('form-field'), label: 'Email', type: 'email' }
+            ],
+            buttonText: 'Submit'
+        });
+        baseElement.styles.desktop.default = { width: '100%', maxWidth: '500px', display: 'flex', flexDirection: 'column', gap: '16px', margin: '2rem auto' };
+        break;
+        case 'button':
+            baseElement.content = 'Click Me';
+            baseElement.styles.desktop.default = { 
+                display: 'block',
+                margin: '0 auto',
+                textAlign: 'center',
+                backgroundColor: 'var(--primary)', 
+                color: '#fff', 
+                padding: '10px 20px', 
+                borderRadius: '8px', 
+                border: 'none', 
+                cursor: 'pointer',
+                outline: 'none'
+            };
+            baseElement.styles.desktop.hover = { backgroundColor: '#4338ca' };
+            break;
+        case 'hero':
+            baseElement.name = 'Hero Section';
+            baseElement.styles.desktop.default = { width: '100%', height: '500px', position: 'relative', display: 'flex', color: '#ffffff'};
+            baseElement.content = JSON.stringify({
+                backgroundType: 'image',
+                backgroundImageUrl: 'https://placehold.co/1200x500/4f46e5/ffffff',
+                backgroundVideoUrl: '',
+                contentPosition: 'center-middle'
+            });
+            baseElement.children = [
+                {...(createNewElement('heading') as Element), content: '<h1>Your Big Idea</h1>', styles: {desktop:{default:{color: '#ffffff', fontSize: '3rem'}}}},
+                {...(createNewElement('paragraph') as Element), content: '<p>Explain it in a few words.</p>', styles: {desktop:{default:{color: '#eeeeee', maxWidth: '600px', fontSize: '1.25rem'}}}},
+                {...(createNewElement('button') as Element), content: 'Get Started', styles: {desktop:{default:{ display: 'block', backgroundColor: '#ffffff', color: 'var(--primary)', margin: '1rem auto' }}}},
+            ];
+            break;
+        case 'hero-slider':
+            baseElement.name = 'Hero Slider';
+            baseElement.styles.desktop.default = { width: '100%', height: '500px', position: 'relative', overflow: 'hidden', color: '#ffffff'};
+            baseElement.content = JSON.stringify({ delay: 4000 });
+            baseElement.children = [
+                createNewElement('hero') as Element,
+                createNewElement('hero') as Element,
+            ];
+            break;
+        case 'ordered-list': baseElement.content = `<ol><li>List Item 1</li><li>List Item 2</li></ol>`; baseElement.styles.desktop.default = { paddingLeft: '40px', color: '#4b5563', width: '100%' }; break;
+        case 'unordered-list': baseElement.content = `<ul><li>List Item 1</li><li>List Item 2</li></ul>`; baseElement.styles.desktop.default = { paddingLeft: '40px', color: '#4b5563', width: '100%' }; break;
+    }
+    return { ...baseElement, id };
 };
 
 const EditorContext = createContext<{ state: EditorState; dispatch: React.Dispatch<EditorAction> } | null>(null);
@@ -751,9 +901,10 @@ export default function EditorPage() {
   const [state, dispatch] = useReducer(editorReducer, initialState);
   const [screenSize, setScreenSize] = useState<'desktop' | 'tablet' | 'mobile'>('desktop');
   const [activePanel, setActivePanel] = useState<'properties' | 'history' | 'versions'>('properties');
-  const [leftSidebarTab, setLeftSidebarTab] = useState<'elements' | 'layers' | 'css'>('elements');
+  const [leftSidebarTab, setLeftSidebarTab] = useState<'elements' | 'layers' | 'css' | 'templates'>('elements');
   const [saveStatus, setSaveStatus] = useState<'saved' | 'unsaved' | 'saving' | 'error'>('saved');
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
+  const [isSaveVersionModalOpen, setIsSaveVersionModalOpen] = useState(false); // Add this state
   const initialContentLoaded = useRef(false);
   const hasUnsavedChanges = useRef(false);
 
@@ -842,21 +993,28 @@ export default function EditorPage() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [state.selectedElementId]);
 
-  const handleSaveVersion = async () => {
+  // MODIFIED: This function now opens the modal
+  const handleSaveVersion = () => {
+    setIsSaveVersionModalOpen(true);
+  };
+
+  // NEW: This function handles the actual API call after getting the version name
+  const handleConfirmSaveVersion = async (versionName: string) => {
     setSaveStatus('saving');
     try {
       await apiClient.saveVersion(siteId, {
         content: state.pageContent,
-        pageStyles: state.pageStyles
+        pageStyles: state.pageStyles,
+        versionName: versionName
       });
       setSaveStatus('saved');
       hasUnsavedChanges.current = false;
-      mutate(`/api/sites/${siteId}/history`);
+      mutate(`/api/sites/${siteId}/history`); // Re-fetch history to show the new version
     } catch(err) {
       console.error("Save version failed:", err);
       setSaveStatus('error');
     }
-  }
+  };
 
   if (!isClient || isLoading) return <div className="flex items-center justify-center h-screen bg-gray-900 text-white">Loading Editor...</div>;
   if (apiError) return <div className="flex items-center justify-center h-screen bg-gray-900 text-white">Failed to load site data.</div>;
@@ -902,6 +1060,15 @@ export default function EditorPage() {
               <Sparkles size={16} />
               <span>AI Generate</span>
             </button>
+           <a
+            href={`/live-preview/${siteId}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center px-3 py-2 bg-teal-600 rounded-md hover:bg-teal-500 transition-colors"
+            >
+            <Eye size={16} className="mr-1" />
+            Live Preview
+            </a>
             <button onClick={() => {}} className="flex items-center gap-2 px-4 py-2 bg-indigo-600 rounded-md hover:bg-indigo-500 transition-colors"><Sparkles size={16} /><span>Publish</span></button>
           </div>
         </header>
@@ -917,6 +1084,12 @@ export default function EditorPage() {
           isOpen={isAiModalOpen}
           onClose={() => setIsAiModalOpen(false)}
           onGenerate={handleAiGenerate}
+        />
+        {/* ADD THIS: Render the new modal */}
+        <SaveVersionModal
+          isOpen={isSaveVersionModalOpen}
+          onClose={() => setIsSaveVersionModalOpen(false)}
+          onSave={handleConfirmSaveVersion}
         />
       </div>
     </EditorContext.Provider>
@@ -941,9 +1114,8 @@ const DraggableItem = ({ type, icon: Icon, label }: DraggableItemProps) => {
 };
 DraggableItem.displayName = 'DraggableItem';
 
-const LeftPanel = ({ activeTab, setActiveTab }: { activeTab: 'elements' | 'layers' | 'css', setActiveTab: (tab: 'elements' | 'layers' | 'css') => void }) => {
+const LeftPanel = ({ activeTab, setActiveTab }: { activeTab: 'elements' | 'layers' | 'templates', setActiveTab: (tab: 'elements' | 'layers' | 'templates') => void }) => {
     const { state } = useEditorContext();
-
     const elementGroups: { title: string; items: DraggableItemProps[] }[] = [
         {
             title: 'Layout',
@@ -1010,13 +1182,12 @@ const LeftPanel = ({ activeTab, setActiveTab }: { activeTab: 'elements' | 'layer
             ]
         }
     ];
-
     return (
         <aside className="w-64 flex-shrink-0 bg-gray-900 border-r border-gray-700 flex flex-col">
             <div className="flex border-b border-gray-700">
                 <button onClick={() => setActiveTab('elements')} className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm ${activeTab === 'elements' ? 'bg-gray-800 text-white' : 'text-gray-400'}`}><Square size={16}/> Elements</button>
                 <button onClick={() => setActiveTab('layers')} className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm ${activeTab === 'layers' ? 'bg-gray-800 text-white' : 'text-gray-400'}`}><Layers size={16}/> Layers</button>
-                <button onClick={() => setActiveTab('css')} className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm ${activeTab === 'css' ? 'bg-gray-800 text-white' : 'text-gray-400'}`}><Code size={16}/> CSS</button>
+                <button onClick={() => setActiveTab('templates')} className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm ${activeTab === 'templates' ? 'bg-gray-800 text-white' : 'text-gray-400'}`}><LayoutTemplate size={16}/> Assets</button>
             </div>
             <div className="p-4 overflow-y-auto">
                 {activeTab === 'elements' && (
@@ -1032,7 +1203,7 @@ const LeftPanel = ({ activeTab, setActiveTab }: { activeTab: 'elements' | 'layer
                     </div>
                 )}
                 {activeTab === 'layers' && <LayersPanel nodes={state.pageContent} />}
-                {activeTab === 'css' && <GlobalCssPanel />}
+                {activeTab === 'templates' && <TemplatesPanel />}
             </div>
         </aside>
     );
@@ -1068,32 +1239,154 @@ const LayersPanel = ({ nodes, level = 0 }: { nodes: Element[], level?: number })
     const { state, dispatch } = useEditorContext();
     const { selectedElementId } = state;
 
+    const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
+
     if (!nodes || nodes.length === 0) return null;
+
+    const toggleNode = (id: string) => {
+        setExpandedNodes(prev => {
+            const newSet = new Set(prev);
+            if (newSet.has(id)) newSet.delete(id);
+            else newSet.add(id);
+            return newSet;
+        });
+    };
 
     return (
         <div className="text-sm">
-            {nodes.map(node => (
-                <div key={node.id}>
-                    <button
-                        onClick={(e) => { e.stopPropagation(); dispatch({ type: 'SET_SELECTED_ELEMENT', payload: node.id })}}
-                        className={`w-full text-left px-2 py-1 rounded hover:bg-gray-700 ${selectedElementId === node.id ? 'bg-indigo-600' : ''}`}
-                        style={{ paddingLeft: `${level * 16 + 8}px` }}
-                    >
-                        {node.name || node.type}
-                    </button>
-                    {node.children && node.children.length > 0 && <LayersPanel nodes={node.children} level={level + 1} />}
-                    {node.type === 'columns' && JSON.parse(node.content).columns.map((col: { id: string, children: Element[] }, i: number) => (
-                        <div key={col.id}>
-                            <div className="px-2 py-1 text-gray-400" style={{ paddingLeft: `${(level + 1) * 16 + 8}px` }}>Column {i + 1}</div>
-                            <LayersPanel nodes={col.children} level={level + 2} />
+            {nodes.map(node => {
+                const isExpanded = expandedNodes.has(node.id);
+                const hasChildren = (node.children && node.children.length > 0) || (node.type === 'columns' && JSON.parse(node.content).columns.length > 0);
+
+                return (
+                    <div key={node.id}>
+                        <div className="flex items-center w-full">
+                            {hasChildren && (
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); toggleNode(node.id); }}
+                                    className="p-1 mr-1"
+                                >
+                                    {isExpanded 
+                                        ? <lucideIcons.ChevronDown size={16} /> 
+                                        : <lucideIcons.ChevronRight size={16} />
+                                    }
+                                </button>
+                            )}
+                            <button
+                                onClick={(e) => { e.stopPropagation(); dispatch({ type: 'SET_SELECTED_ELEMENT', payload: node.id })}}
+                                className={`w-full text-left px-2 py-1 rounded hover:bg-gray-700 ${selectedElementId === node.id ? 'bg-indigo-600' : ''}`}
+                                style={{ paddingLeft: `${level * 16 + 8}px` }}
+                            >
+                                {node.name || node.type}
+                            </button>
                         </div>
-                    ))}
-                </div>
-            ))}
+
+                        {isExpanded && node.children && <LayersPanel nodes={node.children} level={level + 1} />}
+
+                        {isExpanded && node.type === 'columns' && JSON.parse(node.content).columns.map((col: { id: string, children: Element[] }, i: number) => (
+                            <div key={col.id}>
+                                <div className="px-2 py-1 text-gray-400" style={{ paddingLeft: `${(level + 1) * 16 + 8}px` }}>Column {i + 1}</div>
+                                <LayersPanel nodes={col.children} level={level + 2} />
+                            </div>
+                        ))}
+                    </div>
+                );
+            })}
         </div>
     );
 };
+
 LayersPanel.displayName = 'LayersPanel';
+
+const TemplatesPanel = () => {
+  const { dispatch } = useEditorContext();
+  const [uploadedImages, setUploadedImages] = useState<string[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
+
+  const stockImages = [
+    'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=800&auto=format&fit=crop',
+    'https://images.unsplash.com/photo-1558591710-4b4a1ae0f04d?q=80&w=800&auto=format&fit=crop',
+    'https://images.unsplash.com/photo-1506744038136-46273834b3fb?q=80&w=800&auto=format&fit=crop',
+    'https://images.unsplash.com/photo-1579546929518-9e396f3cc809?q=80&w=800&auto=format&fit=crop',
+    'https://images.unsplash.com/photo-1501854140801-50d01698950b?q=80&w=800&auto=format&fit=crop',
+    'https://images.unsplash.com/photo-1497215728101-856f4ea42174?q=80&w=800&auto=format&fit=crop',
+    'https://images.unsplash.com/photo-1553095066-5014bc7b7f2d?q=80&w=800&auto=format&fit=crop',
+    'https://images.unsplash.com/photo-1522252234503-e356532cafd5?q=80&w=800&auto=format&fit=crop',
+    'https://images.unsplash.com/photo-1472214103451-9374bd1c798e?q=80&w=800&auto=format&fit=crop',
+    'https://images.unsplash.com/photo-1488229297570-58520851e868?q=80&w=800&auto=format&fit=crop',
+    'https://images.unsplash.com/photo-1534528741775-53994a69daeb?q=80&w=800&auto=format&fit=crop',
+    'https://images.unsplash.com/photo-1519681393784-d120267933ba?q=80&w=800&auto=format&fit=crop',
+    'https://images.unsplash.com/photo-1441974231531-c6227db76b6e?q=80&w=800&auto=format&fit=crop',
+    'https://images.unsplash.com/photo-1517694712202-14dd9538aa97?q=80&w=800&auto=format&fit=crop',
+    'https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?q=80&w=800&auto=format&fit=crop',
+    'https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?q=80&w=800&auto=format&fit=crop',
+  ];
+
+  const portfolioTemplate = (): Element[] => [
+    createNewElement('navbar') as Element,
+    { ...(createNewElement('hero') as Element), children: [ { ...(createNewElement('heading') as Element), content: '<h1>John Doe</h1>' }, { ...(createNewElement('paragraph') as Element), content: '<p>Creative Software Engineer & AI Enthusiast</p>' }, ], content: JSON.stringify({ backgroundType: 'image', backgroundImageUrl: 'https://images.unsplash.com/photo-1522252234503-e356532cafd5?q=80&w=1600&auto=format&fit=crop', contentPosition: 'center-middle' }) },
+    createNewElement('gallery') as Element,
+    createNewElement('footer') as Element,
+  ];
+
+  const landingPageTemplate = (): Element[] => [
+    createNewElement('navbar') as Element,
+    { ...(createNewElement('hero') as Element), children: [ { ...(createNewElement('heading') as Element), content: '<h1>Launch Your Next Big Idea</h1>' }, { ...(createNewElement('paragraph') as Element), content: '<p>The ultimate platform for innovation and creativity.</p>' }, { ...(createNewElement('button') as Element), content: 'Get Started Today' }, ], content: JSON.stringify({ backgroundType: 'image', backgroundImageUrl: 'https://images.unsplash.com/photo-1497215728101-856f4ea42174?q=80&w=1600&auto=format&fit=crop', contentPosition: 'center-middle' }) },
+    createNewElement('feature-grid') as Element,
+    createNewElement('testimonial') as Element,
+    createNewElement('footer') as Element,
+  ];
+
+  const pageTemplates = [ { name: "Portfolio", template: portfolioTemplate }, { name: "Landing Page", template: landingPageTemplate } ];
+
+  const handleApplyTemplate = (templateFn: () => Element[]) => {
+    if (window.confirm("This will replace your current page content. Are you sure?")) {
+      dispatch({ type: 'SET_PAGE_CONTENT', payload: templateFn() });
+    }
+  };
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      setIsUploading(true);
+      const file = e.target.files[0];
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setUploadedImages(prev => [...prev, reader.result as string]);
+        setIsUploading(false);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const DraggableImage = ({ src }: { src: string }) => {
+    const handleDragStart = (e: React.DragEvent) => e.dataTransfer.setData('imageURL', src);
+    return <img src={src} draggable onDragStart={handleDragStart} className="w-full h-20 object-cover rounded-md cursor-grab border-2 border-transparent hover:border-indigo-500" alt="Draggable asset" />;
+  };
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h3 className="text-xs text-gray-500 font-bold uppercase tracking-wider mb-2">Page Templates</h3>
+        <div className="space-y-2">
+          {pageTemplates.map(t => <button key={t.name} onClick={() => handleApplyTemplate(t.template)} className="w-full text-left p-2 rounded-lg bg-gray-800 border border-gray-700 transition-all hover:bg-gray-700 hover:border-indigo-500">{t.name}</button>)}
+        </div>
+      </div>
+      <div>
+        <h3 className="text-xs text-gray-500 font-bold uppercase tracking-wider mb-2">Image Library</h3>
+        <input type="file" id="imageUpload" className="hidden" accept="image/*" onChange={handleImageUpload} />
+        <label htmlFor="imageUpload" className="w-full flex items-center justify-center gap-2 p-2 rounded-lg bg-indigo-600 text-white cursor-pointer hover:bg-indigo-500 mb-4">
+          {isUploading ? <Loader2 size={16} className="animate-spin" /> : <UploadCloud size={16} />}
+          <span>{isUploading ? 'Uploading...' : 'Upload Image'}</span>
+        </label>
+        <div className="grid grid-cols-2 gap-2">
+          {uploadedImages.map((src, i) => <DraggableImage key={`uploaded-${i}`} src={src} />)}
+          {stockImages.map((src, i) => <DraggableImage key={`stock-${i}`} src={src} />)}
+        </div>
+      </div>
+    </div>
+  );
+};
+TemplatesPanel.displayName = 'TemplatesPanel';
 
 const GlobalCssPanel = () => {
     const { state, dispatch } = useEditorContext();
@@ -1108,7 +1401,7 @@ const GlobalCssPanel = () => {
             <h3 className="text-lg font-bold mb-2">Global Stylesheet</h3>
             <p className="text-xs text-gray-400 mb-4">Add custom CSS classes here. They will be available to all elements on the page.</p>
             <textarea
-                className="w-full h-80 bg-gray-800 text-white font-mono text-xs p-2 rounded-md border border-gray-700 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                className="w-full h-40 bg-gray-800 text-white font-mono text-xs p-2 rounded-md border border-gray-700 focus:outline-none focus:ring-1 focus:ring-indigo-500"
                 value={pageStyles.globalCss || ''}
                 onChange={(e) => handleCssChange(e.target.value)}
             />
@@ -1195,28 +1488,55 @@ const RenderElement = React.memo(({ element, screenSize, handleDragOver, handleD
     const { state, dispatch } = useEditorContext();
     const isSelected = state.selectedElementId === element.id;
     const ref = useRef<HTMLDivElement>(null);
-
     const handleSelect = (e: React.MouseEvent) => {
         e.stopPropagation();
         dispatch({ type: 'SET_SELECTED_ELEMENT', payload: element.id });
     };
-
     const handleDragStart = (e: React.DragEvent) => {
         e.stopPropagation();
         e.dataTransfer.setData('draggedElementId', element.id);
     };
-
     const handleContentBlur = () => {
         if (ref.current && ref.current.innerHTML !== element.content) {
             dispatch({ type: 'UPDATE_ELEMENT_CONTENT', payload: { elementId: element.id, content: ref.current.innerHTML } });
         }
     };
-
+    const handleDropOnElement = (e: React.DragEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const imageURL = e.dataTransfer.getData('imageURL');
+        if (imageURL) {
+            if (element.type === 'image') {
+                dispatch({ type: 'UPDATE_ELEMENT_CONTENT', payload: { elementId: element.id, content: imageURL } });
+                return;
+            }
+            if (element.type === 'hero' || element.name === 'Hero Slide') {
+                const content = JSON.parse(element.content);
+                content.backgroundImageUrl = imageURL;
+                content.backgroundType = 'image';
+                dispatch({ type: 'UPDATE_ELEMENT_CONTENT', payload: { elementId: element.id, content: JSON.stringify(content, null, 2) } });
+                return;
+            }
+             if (element.type === 'right-image-section' || element.type === 'left-image-section') {
+                const content = JSON.parse(element.content);
+                content.imageSrc = imageURL;
+                dispatch({ type: 'UPDATE_ELEMENT_CONTENT', payload: { elementId: element.id, content: JSON.stringify(content, null, 2) } });
+                return;
+            }
+             if (element.type === 'profile-card') {
+                const content = JSON.parse(element.content);
+                content.profileImage = imageURL;
+                dispatch({ type: 'UPDATE_ELEMENT_CONTENT', payload: { elementId: element.id, content: JSON.stringify(content, null, 2) } });
+                return;
+            }
+        }
+        const currentDropIndex = dropIndicator?.index ?? (element.children || []).length
+        handleDrop(e, element.id, currentDropIndex);
+    }
     const getResponsiveStyles = (element: Element, screenSize: 'desktop' | 'tablet' | 'mobile') => {
         const desktopStyles = element.styles?.desktop?.default || {};
         const tabletStyles = element.styles?.tablet?.default || {};
         const mobileStyles = element.styles?.mobile?.default || {};
-
         let styles = { ...desktopStyles };
         if (screenSize === 'tablet' || screenSize === 'mobile') {
             styles = { ...styles, ...tabletStyles };
@@ -1226,15 +1546,11 @@ const RenderElement = React.memo(({ element, screenSize, handleDragOver, handleD
         }
         return styles;
     };
-
     const combinedStyles = getResponsiveStyles(element, screenSize);
-
     if (combinedStyles.display === 'none') {
         return null;
     }
-
     const props = { style: combinedStyles, onClick: handleSelect, onDragStart: handleDragStart, draggable: true, id: element.htmlId, className: element.className };
-
     const renderChildren = (children: Element[], parentId: string) => (
         <>
             {children.map((child, i) => (
@@ -1247,7 +1563,6 @@ const RenderElement = React.memo(({ element, screenSize, handleDragOver, handleD
             {children.length === 0 && <div className="min-h-[60px] flex items-center justify-center text-xs text-gray-400 border-2 border-dashed border-gray-300 rounded-md">Drag elements here</div>}
         </>
     );
-
     const renderTextContent = () => (
         <div
           ref={ref}
@@ -1257,11 +1572,10 @@ const RenderElement = React.memo(({ element, screenSize, handleDragOver, handleD
           dangerouslySetInnerHTML={{ __html: element.content }}
         />
     );
-
     const renderComponent = () => {
         const dropProps = {
             onDragOver: (e: React.DragEvent) => handleDragOver(e, element.id),
-            onDrop: (e: React.DragEvent) => handleDrop(e, element.id, dropIndicator?.index ?? (element.children || []).length)
+            onDrop: handleDropOnElement
         };
         switch (element.type) {
             case 'section':
@@ -1274,7 +1588,6 @@ const RenderElement = React.memo(({ element, screenSize, handleDragOver, handleD
             case 'detail-card':
             case 'feature-grid':
                 return <section {...props} {...dropProps}>{renderChildren(element.children || [], element.id)}</section>;
-
             case 'hero': return <HeroComponent element={element} props={props} dropProps={dropProps} renderChildren={renderChildren} />;
             case 'horizontal-scroll': return <HorizontalScrollComponent element={element} props={props} dropProps={dropProps} renderChildren={renderChildren} />;
             case 'auto-scroll': return <AutoScrollComponent element={element} props={props} dropProps={dropProps} screenSize={screenSize} handleDragOver={handleDragOver} handleDrop={handleDrop} dropIndicator={dropIndicator} selectedElementId={state.selectedElementId}/>;
@@ -1288,67 +1601,98 @@ const RenderElement = React.memo(({ element, screenSize, handleDragOver, handleD
             case 'step-connector': return <div {...props} />;
             case 'testimonial': return <TestimonialComponent element={element} props={props}/>;
             case 'faq': return <FaqComponent element={element} props={props} />;
-
             case 'profile-card': {
-                const content = JSON.parse(element.content);
                 return (
-                    <div {...props}>
-                        <img src={content.profileImage} alt={content.name} style={{width: '80px', height: '80px', borderRadius: '50%'}} />
-                        <div>
-                            <h3 style={{fontSize: '1.25rem', fontWeight: 'bold', color: '#111827'}}>{content.name}</h3>
-                            <p style={{fontSize: '1rem', color: '#4f46e5'}}>{content.title}</p>
-                            <p style={{fontSize: '0.875rem', color: '#6b7280'}}>{content.handle}</p>
-                        </div>
+                    <div {...props} {...dropProps}>
+                        {renderChildren(element.children || [], element.id)}
                     </div>
                 );
-            }
+            };
             case 'video-right-section': {
-                const content = JSON.parse(element.content || '{}');
-                return (
-                    <section {...props}>
-                        <div className="flex-1 min-h-[100px]" {...dropProps}>
-                            {renderChildren(element.children || [], element.id)}
-                        </div>
-                        <div className="flex-1 flex min-h-[250px]">
-                            <iframe className="w-full h-full rounded-lg" src={content.videoUrl} title="Embedded Video" frameBorder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen></iframe>
-                        </div>
-                    </section>
-                );
-            }
-            case 'video-left-section': {
-                const content = JSON.parse(element.content || '{}');
-                return (
-                    <section {...props}>
-                        <div className="flex-1 flex min-h-[250px]">
-                            <iframe className="w-full h-full rounded-lg" src={content.videoUrl} title="Embedded Video" frameBorder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen></iframe>
-                        </div>
-                        <div className="flex-1 min-h-[100px]" {...dropProps}>
-                            {renderChildren(element.children || [], element.id)}
-                        </div>
-                    </section>
-                );
-            }
+                const content = JSON.parse(element.content || '{}');
+                const videoSettings = content.video || { url: content.videoUrl, autoplay: false, controls: true, loop: false, muted: false };
+
+                const videoElement: Element = {
+                    type: 'video',
+                    id: `${element.id}-vid`,
+                    content: JSON.stringify(videoSettings),
+                    children: [],
+                    styles: {
+                        desktop: { default: { width: '100%', borderRadius: '8px', aspectRatio: '16 / 9' }, hover: {} },
+                        tablet: { default: {}, hover: {} }, mobile: { default: {}, hover: {} }
+                    }
+                };
+                return (
+                    <section {...props} {...dropProps}>
+                        <div className="flex-1 min-h-[100px]" onDragOver={(e) => handleDragOver(e, element.id)} onDrop={(e) => handleDrop(e, element.id, dropIndicator?.index ?? (element.children || []).length)}>
+                            {renderChildren(element.children || [], element.id)}
+                        </div>
+                        <div className="flex-1 min-h-[250px]">
+                            <RenderElement element={videoElement} screenSize={screenSize} handleDragOver={e => e.preventDefault()} handleDrop={handleDropOnElement} dropIndicator={null} />
+                        </div>
+                    </section>
+                );
+            }
+            case 'video-left-section': {
+                const content = JSON.parse(element.content || '{}');
+                const videoSettings = content.video || { url: content.videoUrl, autoplay: false, controls: true, loop: false, muted: false };
+
+                const videoElement: Element = {
+                    type: 'video',
+                    id: `${element.id}-vid`,
+                    content: JSON.stringify(videoSettings),
+                    children: [],
+                    styles: {
+                        desktop: { default: { width: '100%', borderRadius: '8px', aspectRatio: '16 / 9' }, hover: {} },
+                        tablet: { default: {}, hover: {} }, mobile: { default: {}, hover: {} }
+                    }
+                };
+                return (
+                    <section {...props} {...dropProps}>
+                        <div className="flex-1 min-h-[250px]">
+                            <RenderElement element={videoElement} screenSize={screenSize} handleDragOver={e => e.preventDefault()} handleDrop={handleDropOnElement} dropIndicator={null} />
+                        </div>
+                        <div className="flex-1 min-h-[100px]" onDragOver={(e) => handleDragOver(e, element.id)} onDrop={(e) => handleDrop(e, element.id, dropIndicator?.index ?? (element.children || []).length)}>
+                            {renderChildren(element.children || [], element.id)}
+                        </div>
+                    </section>
+                );
+            }
             case 'right-image-section': {
                 const content = JSON.parse(element.content || '{}');
+                const imageElement: Element = {
+                    type: 'image', id: `${element.id}-img`, content: content.imageSrc, children: [],
+                    styles: {
+                        desktop: { default: { width: '100%', height: '100%', objectFit: 'cover', borderRadius: '8px' }, hover: {} },
+                        tablet: { default: {}, hover: {} }, mobile: { default: {}, hover: {} }
+                    }
+                };
                 return (
-                    <section {...props} >
-                        <div className="flex-1 min-h-[100px]" {...dropProps}>
+                    <section {...props} {...dropProps}>
+                        <div className="flex-1 min-h-[100px]" onDragOver={(e) => handleDragOver(e, element.id)} onDrop={(e) => handleDrop(e, element.id, dropIndicator?.index ?? (element.children || []).length)}>
                             {renderChildren(element.children || [], element.id)}
                         </div>
                         <div className="flex-1 flex min-h-[250px]">
-                            <img src={content.imageSrc} alt="" className="w-full h-full object-cover rounded-lg" />
+                            <RenderElement element={imageElement} screenSize={screenSize} handleDragOver={e => e.preventDefault()} handleDrop={handleDropOnElement} dropIndicator={null} />
                         </div>
                     </section>
                 )
             }
             case 'left-image-section': {
                 const content = JSON.parse(element.content || '{}');
+                const imageElement: Element = {
+                    type: 'image', id: `${element.id}-img`, content: content.imageSrc, children: [],
+                    styles: {
+                        desktop: { default: { width: '100%', height: '100%', objectFit: 'cover', borderRadius: '8px' }, hover: {} },
+                        tablet: { default: {}, hover: {} }, mobile: { default: {}, hover: {} }
+                    }
+                };
                 return (
-                    <section {...props} >
+                    <section {...props} {...dropProps}>
                         <div className="flex-1 flex min-h-[250px]">
-                            <img src={content.imageSrc} alt="" className="w-full h-full object-cover rounded-lg" />
+                            <RenderElement element={imageElement} screenSize={screenSize} handleDragOver={e => e.preventDefault()} handleDrop={handleDropOnElement} dropIndicator={null} />
                         </div>
-                        <div className="flex-1 min-h-[100px]" {...dropProps}>
+                        <div className="flex-1 min-h-[100px]" onDragOver={(e) => handleDragOver(e, element.id)} onDrop={(e) => handleDrop(e, element.id, dropIndicator?.index ?? (element.children || []).length)}>
                             {renderChildren(element.children || [], element.id)}
                         </div>
                     </section>
@@ -1376,33 +1720,80 @@ const RenderElement = React.memo(({ element, screenSize, handleDragOver, handleD
                 return <div {...props} style={gridStyle}>{galleryContent.images.map((src: string, i: number) => <img key={i} src={src} alt={`Gallery image ${i+1}`} style={{width: '100%', height: 'auto', borderRadius: '8px'}} />)}</div>;
             }
             case 'footer': {
-                const footerContent = JSON.parse(element.content);
-                return <footer {...props}><p>{footerContent.text}</p></footer>;
+                return <footer {...props} {...dropProps}>{renderChildren(element.children || [], element.id)}</footer>;
+            }
+            case 'navbar': return <NavbarComponent element={element} screenSize={screenSize} {...props} />;
+            case 'video': {
+                let videoContent;
+                try {
+                    videoContent = JSON.parse(element.content);
+                } catch (e) {
+                    videoContent = { url: element.content, autoplay: false, controls: true, loop: false, muted: false };
+                }
+
+                const { url, autoplay, controls, loop, muted } = videoContent;
+
+                // Helper to extract YouTube video ID for the 'playlist' parameter required by 'loop'
+                const getYouTubeVideoId = (url: string) => {
+                    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+                    const match = url.match(regExp);
+                    return (match && match[2].length === 11) ? match[2] : null;
+                };
+
+                const videoId = getYouTubeVideoId(url);
+
+                const params = new URLSearchParams();
+                if (autoplay) params.set('autoplay', '1');
+                if (!controls) params.set('controls', '0');
+                if (loop && videoId) {
+                    params.set('loop', '1');
+                    params.set('playlist', videoId); // YouTube's loop requires the playlist param
+                }
+                if (muted) params.set('mute', '1');
+                if (autoplay) params.set('playsinline', '1'); // Helps with autoplay on mobile
+
+                const finalUrl = `${url.split('?')[0]}?${params.toString()}`;
+
+                return <iframe {...props} src={finalUrl} title="Embedded Video" frameBorder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen></iframe>;
             }
-            case 'navbar': return <NavbarComponent element={element} screenSize={screenSize} {...props} />;
-            case 'video': return <iframe {...props} src={element.content} title="Embedded Video" frameBorder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen></iframe>;
             case 'divider': return <div {...props} />;
             case 'contact-form': {
-                const formContent = JSON.parse(element.content);
-                return (
-                    <form {...props} onSubmit={e => e.preventDefault()}>
-                        {formContent.fields.map((field: {label: string, type: string}) => (
-                            <div key={field.label} className="flex flex-col mb-4">
-                                <label className="mb-1 text-sm text-gray-700">{field.label}</label>
-                                <input type={field.type} className="p-2 border border-gray-300 rounded"/>
-                            </div>
-                        ))}
-                        <button type="submit" style={{ backgroundColor: '#4f46e5', color: '#fff', padding: '10px 20px', borderRadius: '8px', border: 'none', cursor: 'pointer' }}>{formContent.buttonText}</button>
-                    </form>
-                );
+            const formContent = JSON.parse(element.content);
+            
+            const renderField = (field: { id: string; label: string; type: string }) => {
+                const commonProps = {
+                className: "p-2 border border-gray-300 rounded bg-white text-black",
+                placeholder: `Enter ${field.label}...`
+                };
+
+                switch (field.type) {
+                case 'textarea':
+                    return <textarea {...commonProps} rows={4}></textarea>;
+                default:
+                    return <input type={field.type} {...commonProps} />;
+                }
+            };
+
+            return (
+                <form {...props} onSubmit={e => e.preventDefault()}>
+                {formContent.fields.map((field: { id: string, label: string, type: string }) => (
+                    <div key={field.id} className="flex flex-col mb-4">
+                    <label className="mb-1 text-sm text-gray-700">{field.label}</label>
+                    {renderField(field)}
+                    </div>
+                ))}
+                <button type="submit" style={{ backgroundColor: '#4f46e5', color: '#fff', padding: '10px 20px', borderRadius: '8px', border: 'none', cursor: 'pointer' }}>
+                    {formContent.buttonText}
+                </button>
+                </form>
+            );
             }
-            case 'image': return <img {...props} src={element.content} alt="" />;
+            case 'image': return <img {...props} onDrop={handleDropOnElement} src={element.content} alt="" />;
             case 'button': return <button {...props}>{element.content}</button>;
             default: return <div {...props} className="p-4 bg-gray-200 text-gray-800 rounded">Invalid Element: {element.type}</div>;
         }
     };
     
-    // Wrap the return in a fragment and add the DynamicElementStyles component
     return (
         <>
             <DynamicElementStyles element={element} />
@@ -1747,26 +2138,58 @@ const ElementPropertiesPanel = ({ element, screenSize, setScreenSize }: { elemen
   const currentStyles = element.styles?.[screenSize]?.[styleState] || {};
 
   const renderContentInputs = () => {
-    if (['preview-card', 'detail-card'].includes(element.type)) {
-      return <p className="text-xs text-gray-400">This is a preset container. Click the elements inside the canvas to edit them.</p>;
+    if (['card', 'preview-card', 'detail-card', 'profile-card'].includes(element.type)) {
+        const handleAddChild = () => {
+            const newElement = createNewElement('paragraph') as Element;
+            dispatch({
+                type: 'ADD_ELEMENT',
+                payload: {
+                    elements: [newElement],
+                    parentId: element.id,
+                    index: element.children?.length || 0
+                }
+            });
+        };
+
+        return (
+            <>
+                <p className="text-xs text-gray-400 mb-4">Manage the content inside this card. You can add new elements or select existing ones to edit.</p>
+                <button
+                    onClick={handleAddChild}
+                    className="w-full flex items-center justify-center gap-2 bg-indigo-600 py-2 rounded-md hover:bg-indigo-500 text-sm mb-4"
+                >
+                    <FaPlus size={12} /> Add Element to Card
+                </button>
+                <ChildElementSelector element={element} />
+            </>
+        );
     }
-    
-    if (['image', 'button', 'video'].includes(element.type)) {
-      return <StyleInput label="URL / Text" value={element.content} onChange={val => dispatch({type: 'UPDATE_ELEMENT_CONTENT', payload: {elementId: element.id, content: val}})}/>;
+
+    if (['image', 'button'].includes(element.type)) {
+        return <StyleInput label="URL / Text" value={element.content} onChange={val => dispatch({type: 'UPDATE_ELEMENT_CONTENT', payload: {elementId: element.id, content: val}})}/>;
     }
-    
+
+    if (element.type === 'video') {
+        try {
+            const videoContent = JSON.parse(element.content);
+            return <VideoProperties content={videoContent} onContentChange={handleContentChange} />;
+        } catch (e) {
+            const videoContent = { url: element.content, autoplay: false, controls: true, loop: false, muted: false };
+            return <VideoProperties content={videoContent} onContentChange={handleContentChange} />;
+        }
+    }
     
     if (['horizontal-scroll', 'image-carousel', 'hero-slider'].includes(element.type)) {
         const content = JSON.parse(element.content || '{}');
         return (
-          <>
-            <AddChildElementProperties element={element} />
-            { (element.type === 'image-carousel' || element.type === 'hero-slider') &&
-                <div>
-                  <SliderDelayProperties content={content} onContentChange={handleContentChange} />
-                </div>
-            }
-          </>
+            <>
+                <AddChildElementProperties element={element} />
+                { (element.type === 'image-carousel' || element.type === 'hero-slider') &&
+                    <div>
+                        <SliderDelayProperties content={content} onContentChange={handleContentChange} />
+                    </div>
+                }
+            </>
         );
     }
 
@@ -1794,34 +2217,32 @@ const ElementPropertiesPanel = ({ element, screenSize, setScreenSize }: { elemen
 
             if (typeof content === 'object' && content !== null) {
                 const contentPanelMap: Record<string, React.ReactNode> = {
-                  hero: <HeroProperties element={element} content={content} onContentChange={handleContentChange} />,
-                  accordion: <AccordionProperties content={content} onContentChange={handleContentChange} />,
-                  navbar: <NavbarProperties content={content} onContentChange={handleContentChange} />,
-                  columns: <ColumnsProperties element={element} content={content} onContentChange={handleContentChange} />,
-                  gallery: <GalleryProperties content={content} onContentChange={handleContentChange} />,
-                  steps: <StepsProperties element={element} />,
-                  footer: <StyleInput label="Copyright Text" value={content.text} onChange={val => handleContentChange({text: val})} />,
-                  "right-image-section": <SplitSectionProperties element={element} content={content} onContentChange={handleContentChange} />,
-                  "left-image-section": <SplitSectionProperties element={element} content={content} onContentChange={handleContentChange} />,
-                  "video-right-section": <SplitSectionProperties element={element} content={content} onContentChange={handleContentChange} />,
-                  "video-left-section": <SplitSectionProperties element={element} content={content} onContentChange={handleContentChange} />,
-                  "profile-card": <ProfileCardProperties content={content} onContentChange={handleContentChange} />,
-                  "testimonial": <TestimonialProperties content={content} onContentChange={handleContentChange} />,
-                  "faq": <FaqProperties content={content} onContentChange={handleContentChange} />,
-                  "feature-grid": <FeatureGridProperties element={element} content={content} onContentChange={handleContentChange} />,
-                  "feature-block": <FeatureBlockProperties content={content} onContentChange={handleContentChange} />,
-                  "step-block": <StepBlockProperties element={element} />,
-                  "contact-form": <ContactFormProperties content={content} onContentChange={handleContentChange} />,
+                    hero: <HeroProperties element={element} content={content} onContentChange={handleContentChange} />,
+                    accordion: <AccordionProperties content={content} onContentChange={handleContentChange} />,
+                    navbar: <NavbarProperties content={content} onContentChange={handleContentChange} />,
+                    columns: <ColumnsProperties element={element} content={content} onContentChange={handleContentChange} />,
+                    gallery: <GalleryProperties content={content} onContentChange={handleContentChange} />,
+                    steps: <StepsProperties element={element} />,
+                    "right-image-section": <SplitSectionProperties element={element} content={content} onContentChange={handleContentChange} />,
+                    "left-image-section": <SplitSectionProperties element={element} content={content} onContentChange={handleContentChange} />,
+                    "video-right-section": <SplitSectionProperties element={element} content={content} onContentChange={handleContentChange} />,
+                    "video-left-section": <SplitSectionProperties element={element} content={content} onContentChange={handleContentChange} />,
+                    "profile-card": <ProfileCardProperties element={element} />,
+                    "testimonial": <TestimonialProperties content={content} onContentChange={handleContentChange} />,
+                    "faq": <FaqProperties content={content} onContentChange={handleContentChange} />,
+                    "feature-grid": <FeatureGridProperties element={element} content={content} onContentChange={handleContentChange} />,
+                    "feature-block": <FeatureBlockProperties content={content} onContentChange={handleContentChange} />,
+                    "step-block": <StepBlockProperties element={element} />,
+                    "contact-form": <ContactFormProperties content={content} onContentChange={handleContentChange} />,
                 };
                 return contentPanelMap[element.type] || null;
             }
         } catch (e) {
-            // Content is not JSON, fall through to default behavior or return null
         }
     }
 
     return null;
-  };
+ };
 
   return (
     <div>
@@ -1853,7 +2274,14 @@ const ElementPropertiesPanel = ({ element, screenSize, setScreenSize }: { elemen
 
       <CollapsibleGroup title="Content" open>{renderContentInputs()}</CollapsibleGroup>
 
-      <CollapsibleGroup title="Attributes & ID">
+        {['image', 'video', 'preview-card', 'detail-card', 'profile-card', 'card'].includes(element.type) && (
+            <CollapsibleGroup title="Arrange" open>
+                <WrapInColumnsProperties elementId={element.id} />
+                <p className="text-xs text-gray-400 mt-2">This will wrap the current element in a new 2-column layout to add content next to it.</p>
+            </CollapsibleGroup>
+        )}
+
+        <CollapsibleGroup title="Attributes & ID">
         <StyleInput label="HTML ID" value={element.htmlId || ''} onChange={val => dispatch({ type: 'UPDATE_ELEMENT_ATTRIBUTE', payload: { elementId: element.id, attribute: 'htmlId', value: val }})} />
         <StyleInput label="Custom Classes" value={element.className || ''} onChange={val => dispatch({ type: 'UPDATE_ELEMENT_ATTRIBUTE', payload: { elementId: element.id, attribute: 'className', value: val }})} />
       </CollapsibleGroup>
@@ -1942,6 +2370,7 @@ const PagePropertiesPanel = ({ pageStyles }: { pageStyles: PageStyles }) => {
                 <StyleInput label="Default Text Color" type="color" value={pageStyles.color} onChange={(val: string) => handleStyleChange('color', val)} />
                 <StyleInput label="Font Family" value={pageStyles.fontFamily} onChange={(val: string) => handleStyleChange('fontFamily', val)} />
             </CollapsibleGroup>
+            <GlobalCssPanel />
             <CollapsibleGroup title="Design System" open>
                 <h4 className="text-sm font-bold mb-2">Global Colors</h4>
                 {pageStyles.globalColors?.map((color, index) => (
@@ -1990,20 +2419,40 @@ const VersionHistoryPanel = ({ siteId }: { siteId: string }) => {
     return (
         <div className="space-y-2">
             {data?.history.length ? data.history.map((version: any) => (
-                <div key={version.id} className="p-2 rounded-md bg-gray-800">
+                <div key={version.id} className=" p-2 rounded-md bg-gray-800">
                     <p className="text-sm font-medium">
-                        {new Date(version.savedAt._seconds * 1000).toLocaleString()}
+                        {version.versionName || `${version.id}`}
                     </p>
-                    <button onClick={() => handleRevert(version)} className="text-xs text-indigo-400 hover:underline">
-                        Load this version
-                    </button>
+                    <div className='flex items-center justify-between'>
+                        <p className="text-sm font-medium text-gray-400">
+                            {new Date(version.savedAt._seconds * 1000).toLocaleString()}
+                        </p>
+                        <div className="flex items-center space-x-2">
+                            <button
+                                onClick={() => handleRevert(version)}
+                                title="Revert to this version"
+                                className="p-1.5 text-indigo-400 rounded-md hover:bg-gray-700 transition-colors"
+                            >
+                                <Undo2 size={20} />
+                            </button>
+
+                            <a
+                                href={`/version-preview/${siteId}?version=${version.id}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                title="Preview this version"
+                                className="p-1.5 text-teal-400 rounded-md hover:bg-gray-700 transition-colors"
+                            >
+                                <Eye size={20} />
+                            </a>
+                        </div>
+                    </div>
                 </div>
             )) : <p className="text-sm text-gray-400">No saved versions yet.</p>}
         </div>
     );
 };
 VersionHistoryPanel.displayName = 'VersionHistoryPanel';
-
 
 const NavbarProperties = ({ content, onContentChange }: { content: any; onContentChange: (c: any) => void }) => {
     const handleLinkChange = (index: number, field: string, value: any) => {
@@ -2033,6 +2482,28 @@ const NavbarProperties = ({ content, onContentChange }: { content: any; onConten
                 <StyleInput label="Logo Type" type="select" value={content.logo.type} onChange={val => onContentChange({ ...content, logo: { ...content.logo, type: val } })} options={[{ label: 'Image', value: 'image' }, { label: 'Text', value: 'text' }]} />
                 {content.logo.type === 'image' ? <StyleInput label="Logo URL" value={content.logo.src} onChange={val => onContentChange({ ...content, logo: { ...content.logo, src: val } })} /> : <StyleInput label="Logo Text" value={content.logo.text} onChange={val => onContentChange({ ...content, logo: { ...content.logo, text: val } })} />}
             </CollapsibleGroup>
+            <CollapsibleGroup title="Positioning" open>
+              <StyleInput
+                  label="Position"
+                  type="select"
+                  value={content.position || 'static'}
+                  onChange={val => onContentChange({ ...content, position: val })}
+                  options={['static', 'relative', 'absolute', 'fixed', 'sticky'].map(v => ({ label: v.charAt(0).toUpperCase() + v.slice(1), value: v }))}
+              />
+              <StyleInput
+                  label="Top Offset"
+                  value={content.top || '0px'}
+                  onChange={val => onContentChange({ ...content, top: val })}
+                  placeholder="e.g., 0px, 1rem"
+              />
+            </CollapsibleGroup>
+            <StyleInput 
+                label="Links Position" 
+                type="select" 
+                value={content.linksPosition || 'right'} 
+                onChange={val => onContentChange({ ...content, linksPosition: val })} 
+                options={[{ label: 'Left', value: 'left' }, { label: 'Center', value: 'center' }, { label: 'Right', value: 'right' }]} 
+            />
 
             <CollapsibleGroup title="Links" open>
                 {content.links.map((link: { id: string, label: string, href: string }, index: number) => (
@@ -2068,8 +2539,16 @@ const NavbarProperties = ({ content, onContentChange }: { content: any; onConten
     );
 };
 NavbarProperties.displayName = 'NavbarProperties';
+
 const GalleryProperties = ({ content, onContentChange }: { content: any; onContentChange: (c: any) => void }) => (<> <StyleInput label="Columns" type="number" value={content.columns} onChange={val => onContentChange({...content, columns: Number(val)})} /> <h4 className="text-sm font-bold mt-4 mb-2">Images</h4> {content.images.map((img: string, index: number) => (<div key={index} className="flex gap-2 items-center mb-2 p-2 bg-gray-700 rounded-md"> <input type="text" placeholder="Image URL" value={img} onChange={e => { const newImages = [...content.images]; newImages[index] = e.target.value; onContentChange({...content, images: newImages});}} className="flex-1 bg-gray-600 rounded px-2 py-1"/> <button onClick={() => { const newImages = content.images.filter((_:any, i:number) => i !== index); onContentChange({...content, images: newImages})}} className="p-1 hover:bg-red-500 rounded"><FaTrashAlt size={12}/></button> </div> ))} <button onClick={() => onContentChange({...content, images: [...content.images, 'https://placehold.co/600x400']})} className="text-indigo-400 text-sm mt-2 flex items-center gap-1"><FaPlus size={10}/> Add Image</button> </>);
-const ProfileCardProperties = ({ content, onContentChange }: { content: any; onContentChange: (c: any) => void }) => (<> <StyleInput label="Profile Image URL" value={content.profileImage} onChange={(val: string) => onContentChange({...content, profileImage: val})} /> <StyleInput label="Name" value={content.name} onChange={(val: string) => onContentChange({...content, name: val})} /> <StyleInput label="Title" value={content.title} onChange={(val: string) => onContentChange({...content, title: val})} /> <StyleInput label="Handle" value={content.handle} onChange={(val: string) => onContentChange({...content, handle: val})} /> </>);
+const ProfileCardProperties = ({ element }: { element: Element }) => (
+    <>
+        <p className="text-xs text-gray-400 mb-2">
+            To edit the image or text, select the element directly on the canvas or from the "Child Elements" list below.
+        </p>
+        <ChildElementSelector element={element} />
+    </>
+);
 const ColumnsProperties = ({ element, content, onContentChange }: { element: Element, content: any, onContentChange: (c:any)=>void}) => {
     const handleColumnCountChange = (count: number) => {
         const newColumns = Array.from({ length: count }, (_, i) => {
@@ -2118,6 +2597,8 @@ const NavbarComponent = ({ element, screenSize, ...props }: { element: Element; 
     const styles = navContent.styles || {};
     const ctaStyles = navContent.cta?.styles || {};
 
+    const isMobileView = screenSize === 'mobile';
+
     const getHoverClass = (animation: string) => {
         switch(animation) {
             case 'grow': return 'hover:scale-110';
@@ -2137,9 +2618,18 @@ const NavbarComponent = ({ element, screenSize, ...props }: { element: Element; 
         color: ctaStyles.color || '#ffffff',
         borderRadius: ctaStyles.borderRadius || '8px'
     };
+
+    const navStyles = {
+        position: navContent.position || 'static',
+        top: navContent.top || '0px',
+        zIndex: navContent.position === 'fixed' || navContent.position === 'sticky' ? 50 : undefined, // Ensure it stays on top
+        left: navContent.position === 'fixed' || navContent.position === 'sticky' ? 0 : undefined,
+        right: navContent.position === 'fixed' || navContent.position === 'sticky' ? 0 : undefined,
+        ...(props.style || {}) // Merge with existing styles from RenderElement
+    };
     
     return (
-        <nav {...props} className="relative">
+        <nav {...props} style={navStyles} className={`${props.className || ''} relative`}>
             <style>{`
                 .nav-link:hover { color: ${styles.hoverColor || '#4f46e5'} !important; }
             `}</style>
@@ -2149,37 +2639,42 @@ const NavbarComponent = ({ element, screenSize, ...props }: { element: Element; 
                 ) : (
                     <span style={{ fontWeight: 'bold', fontSize: '1.5rem' }}>{navContent.logo.text}</span>
                 )}
-                <div className="hidden md:flex items-center gap-6">
-                    {navContent.links.map((link: { id: string, label: string, href: string }) => 
-                        <a 
-                            key={link.id} 
-                            href={link.href} 
-                            onClick={e => e.preventDefault()} 
-                            className={`nav-link transition-all duration-200 ${getHoverClass(styles.hoverAnimation)}`}
-                            style={linkStyle}
-                        >
-                            {link.label}
-                        </a>
-                    )}
-                </div>
-                {navContent.cta.enabled && 
-                    <a 
-                        href={navContent.cta.href} 
-                        onClick={e => e.preventDefault()} 
-                        className="hidden md:block px-4 py-2 transition-opacity hover:opacity-90"
-                        style={ctaStyle}
-                    >
-                        {navContent.cta.label}
-                    </a>
-                }
-                <div className="md:hidden">
-                    <button onClick={(e) => {e.stopPropagation(); setIsMobileMenuOpen(!isMobileMenuOpen)}}>
-                        {isMobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
-                    </button>
-                </div>
+
+                {!isMobileView && (
+                    <div className="flex items-center gap-6">
+                        {navContent.links.map((link: { id: string, label: string, href: string }) => 
+                            <a 
+                                key={link.id} 
+                                href={link.href} 
+                                onClick={e => e.preventDefault()} 
+                                className={`nav-link transition-all duration-200 ${getHoverClass(styles.hoverAnimation)}`}
+                                style={linkStyle}
+                            >
+                                {link.label}
+                            </a>
+                        )}
+                        {navContent.cta.enabled && 
+                            <a 
+                                href={navContent.cta.href} 
+                                onClick={e => e.preventDefault()} 
+                                className="px-4 py-2 transition-opacity hover:opacity-90"
+                                style={ctaStyle}
+                            >
+                                {navContent.cta.label}
+                            </a>
+                        }
+                    </div>
+                )}
+                {isMobileView && (
+                    <div>
+                        <button onClick={(e) => { e.stopPropagation(); setIsMobileMenuOpen(!isMobileMenuOpen) }}>
+                            {isMobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
+                        </button>
+                    </div>
+                )}
             </div>
-            {isMobileMenuOpen && (
-                <div className="absolute top-full left-0 w-full bg-white text-black mt-2 rounded-md shadow-lg p-4 md:hidden">
+            {isMobileView && isMobileMenuOpen && (
+                <div className="absolute top-full left-0 w-full bg-white text-black mt-2 rounded-md shadow-lg p-4 z-[9999]">
                     <div className="flex flex-col gap-4">
                         {navContent.links.map((link: { id: string, label: string, href: string }) => 
                             <a 
@@ -2246,37 +2741,20 @@ const AILayoutGeneratorModal = ({
 const generateElementFromAI = (componentData: { type: ElementType; content: any }): Element | Element[] | null => {
     const { type, content } = componentData;
 
-    // Handle the special 'gallery' case which returns an array
-    if (type === 'gallery') {
-        const headingEl = createNewElement('heading') as Element;
-        headingEl.content = `<h2>${content.heading || 'Our Gallery'}</h2>`;
-
-        const galleryBaseElement = createNewElement('gallery') as Element;
-        const galleryElement = produce(galleryBaseElement, draft => {
-            const galleryContent = JSON.parse(draft.content);
-            if (content.imagePrompts) {
-                galleryContent.images = content.imagePrompts.map((prompt: string) => `https://source.unsplash.com/800x600/?${encodeURIComponent(prompt)}`);
-            }
-            draft.content = JSON.stringify(galleryContent, null, 2);
-        });
-
-        return [headingEl, galleryElement];
-    }
-    
-    // Handle all other cases which return a single element
     const baseElementOrArray = createNewElement(type);
     if (!baseElementOrArray) return null;
 
     const baseElement = Array.isArray(baseElementOrArray) ? baseElementOrArray[0] : baseElementOrArray;
 
     const hydratedElement = produce(baseElement, draft => {
-        // The original switch statement, but without the 'gallery' case
         switch (draft.type) {
             case 'navbar': {
                 const navContent = JSON.parse(draft.content);
                 navContent.logo.text = content.logoText || navContent.logo.text;
                 navContent.logo.type = 'text';
-                navContent.links = (content.links || []).map((label: string) => ({ id: getUniqueId('link'), label, href: '#' }));
+                if (content.links) {
+                    navContent.links = content.links.map((label: string) => ({ id: getUniqueId('link'), label, href: '#' }));
+                }
                 navContent.cta.label = content.ctaButton || navContent.cta.label;
                 draft.content = JSON.stringify(navContent, null, 2);
                 break;
@@ -2287,9 +2765,9 @@ const generateElementFromAI = (componentData: { type: ElementType; content: any 
                     if (content.subheading) draft.children[1].content = `<p>${content.subheading}</p>`;
                     if (content.ctaButton) draft.children[2].content = content.ctaButton;
                 }
-                if (content.backgroundImagePrompt) {
+                if (content.imageUrl) {
                     const heroContent = JSON.parse(draft.content);
-                    heroContent.backgroundImageUrl = `https://source.unsplash.com/1600x900/?${encodeURIComponent(content.backgroundImagePrompt)}`;
+                    heroContent.backgroundImageUrl = content.imageUrl;
                     draft.content = JSON.stringify(heroContent);
                 }
                 break;
@@ -2302,9 +2780,9 @@ const generateElementFromAI = (componentData: { type: ElementType; content: any 
                 pEl.content = `<p>${content.paragraph || ''}</p>`;
                 draft.children = [headingEl, pEl];
 
-                if (content.imagePrompt) {
+                if (content.imageUrl) {
                     const sectionContent = JSON.parse(draft.content);
-                    sectionContent.imageSrc = `https://source.unsplash.com/800x600/?${encodeURIComponent(content.imagePrompt)}`;
+                    sectionContent.imageSrc = content.imageUrl;
                     draft.content = JSON.stringify(sectionContent);
                 }
                 break;
@@ -2347,7 +2825,14 @@ const generateElementFromAI = (componentData: { type: ElementType; content: any 
                 }
                 break;
             }
-            // The 'gallery' case is now removed from here
+             case 'gallery': {
+                const galleryContent = JSON.parse(draft.content);
+                if (content.imageUrls) {
+                    galleryContent.images = content.imageUrls;
+                }
+                draft.content = JSON.stringify(galleryContent, null, 2);
+                break;
+            }
             case 'testimonial': {
                 const testimonialContent = JSON.parse(draft.content);
                 testimonialContent.quote = content.quote || testimonialContent.quote;
@@ -2362,17 +2847,23 @@ const generateElementFromAI = (componentData: { type: ElementType; content: any 
                 heading.content = `<h2>${content.heading || 'Contact Us'}</h2>`;
                 const subheading = createNewElement('paragraph') as Element;
                 subheading.content = `<p>${content.subheading || 'Get in touch with us.'}</p>`;
-                draft.children = [heading, subheading, ...(draft.children || [])];
+                draft.children = [heading, subheading];
                 break;
             }
             case 'footer': {
-                const footerContent = JSON.parse(draft.content);
-                footerContent.text = content.copyrightText || footerContent.text;
-                draft.content = JSON.stringify(footerContent, null, 2);
+                if (draft.children?.[0]) {
+                     draft.children[0].content = `<p>${content.copyrightText || `© ${new Date().getFullYear()} Your Company. All rights reserved.`}</p>`;
+                }
                 break;
             }
         }
     });
+
+    if (type === 'gallery' && content.heading) {
+        const headingEl = createNewElement('heading') as Element;
+        headingEl.content = `<h2>${content.heading}</h2>`;
+        return [headingEl, hydratedElement];
+    }
 
     return hydratedElement;
 };
@@ -2608,26 +3099,41 @@ const StepsProperties = ({ element }: { element: Element; }) => {
     };
     
     const handleConnectorChange = (type: string) => {
-        dispatch({
-            type: 'UPDATE_ELEMENT_CONTENT',
-            payload: { elementId: element.id, content: JSON.stringify({ connectorType: type }, null, 2) }
-        });
+        dispatch({
+            type: 'UPDATE_ELEMENT_CONTENT',
+            payload: { elementId: element.id, content: JSON.stringify({ connectorType: type }, null, 2) }
+        });
 
-        const borderStyle = {
-            solid: '2px solid #e5e7eb',
-            dashed: '2px dashed #e5e7eb',
-            dotted: '2px dotted #e5e7eb',
-        }[type] || 'none';
+        const stylesToApply: any = {
+            marginTop: '23px',
+            height: '2px',
+            backgroundColor: 'transparent',
+            borderTop: 'none',
+        };
 
-        stepsContainer.children?.forEach(child => {
-            if (child.type === 'step-connector') {
-                dispatch({
-                    type: 'UPDATE_ELEMENT_STYLES',
-                    payload: { elementId: child.id, styles: { borderTop: borderStyle }, breakpoint: 'desktop', state: 'default' }
-                });
-            }
-        });
-    };
+        if (type === 'solid') {
+            stylesToApply.backgroundColor = '#e5e7eb';
+        } else if (type === 'dashed' || type === 'dotted') {
+            stylesToApply.borderTop = `2px ${type} #e5e7eb`;
+        } else if (type === 'none') {
+            stylesToApply.height = '0px';
+            stylesToApply.marginTop = '0px';
+        }
+        
+        stepsContainer.children?.forEach(child => {
+            if (child.type === 'step-connector') {
+                dispatch({
+                    type: 'UPDATE_ELEMENT_STYLES',
+                    payload: {
+                        elementId: child.id,
+                        styles: stylesToApply,
+                        breakpoint: 'desktop',
+                        state: 'default'
+                    }
+                });
+            }
+        });
+    };
 
     return (
         <>
@@ -3266,48 +3772,97 @@ const FaqProperties = ({ content, onContentChange }: { content: any; onContentCh
 FaqProperties.displayName = 'FaqProperties';
 
 const ContactFormProperties = ({ content, onContentChange }: { content: any; onContentChange: (c: any) => void }) => {
-    const handleFieldChange = (index: number, field: 'label' | 'type', value: string) => {
-        const newFields = [...content.fields];
-        (newFields[index] as any)[field] = value;
-        onContentChange({ ...content, fields: newFields });
-    };
+  const handleFieldChange = (index: number, field: 'label' | 'type', value: string) => {
+    const newFields = [...content.fields];
+    (newFields[index] as any)[field] = value;
+    onContentChange({ ...content, fields: newFields });
+  };
 
-    const handleAddField = () => {
-        const newFields = [...content.fields, { label: 'New Field', type: 'text' }];
-        onContentChange({ ...content, fields: newFields });
-    };
+  const handleAddField = () => {
+    const newFields = [...content.fields, { id: getUniqueId('form-field'), label: 'New Field', type: 'text' }];
+    onContentChange({ ...content, fields: newFields });
+  };
 
-    const handleRemoveField = (index: number) => {
-        const newFields = content.fields.filter((_: any, i: number) => i !== index);
-        onContentChange({ ...content, fields: newFields });
-    };
+  const handleRemoveField = (index: number) => {
+    const newFields = content.fields.filter((_: any, i: number) => i !== index);
+    onContentChange({ ...content, fields: newFields });
+  };
 
-    return (
-        <>
-            <h4 className="text-sm font-bold mt-4 mb-2">Form Fields</h4>
-            {content.fields.map((field: { label: string, type: string }, index: number) => (
-                <div key={index} className="flex gap-2 items-center mb-2 p-2 bg-gray-700 rounded-md">
-                    <input type="text" placeholder="Label" value={field.label} onChange={e => handleFieldChange(index, 'label', e.target.value)} className="flex-1 bg-gray-600 rounded px-2 py-1"/>
-                    <select value={field.type} onChange={e => handleFieldChange(index, 'type', e.target.value)} className="bg-gray-600 rounded px-2 py-1">
-                        <option value="text">Text</option>
-                        <option value="email">Email</option>
-                        <option value="textarea">Textarea</option>
-                    </select>
-                    <button onClick={() => handleRemoveField(index)} className="p-1 hover:bg-red-500 rounded"><FaTrashAlt size={12}/></button>
-                </div>
-            ))}
-            <button onClick={handleAddField} className="text-indigo-400 text-sm mt-2 flex items-center gap-1"><FaPlus size={10}/> Add Field</button>
-            <h4 className="text-sm font-bold mt-4 mb-2">Button</h4>
-            <StyleInput label="Button Text" value={content.buttonText} onChange={val => onContentChange({ ...content, buttonText: val})} />
-        </>
-    )
+  return (
+    <>
+      <h4 className="text-sm font-bold mt-4 mb-2">Form Fields</h4>
+      {content.fields.map((field: { id: string, label: string, type: string }, index: number) => (
+        <div
+          key={field.id}
+          className="inline-block items-center mb-2 p-2 bg-gray-700 rounded-md gap-[5px]"
+        >
+          <input
+            type="text"
+            placeholder="Label"
+            value={field.label}
+            onChange={(e) => handleFieldChange(index, 'label', e.target.value)}
+            className="flex-1 bg-gray-600 rounded px-2 py-1 mb-2"
+          />
+          
+          <select
+        value={field.type}
+        onChange={(e) => handleFieldChange(index, 'type', e.target.value)}
+        className="bg-gray-600 rounded px-2 py-1 w-[80%] mr-[10%]"
+        >
+        {/* --- Common Text-based Inputs --- */}
+        <option value="text">Text</option>
+        <option value="textarea">Text Area</option>
+        <option value="email">Email</option>
+        <option value="password">Password</option>
+        <option value="tel">Telephone</option>
+        <option value="url">URL</option>
+        <option value="search">Search</option>
+        
+        {/* --- Numeric Inputs --- */}
+        <option value="number">Number</option>
+        <option value="range">Range Slider</option>
+
+        {/* --- Date and Time Inputs --- */}
+        <option value="date">Date</option>
+        <option value="datetime-local">Date and Time</option>
+        <option value="month">Month</option>
+        <option value="week">Week</option>
+        <option value="time">Time</option>
+
+        {/* --- Selection Inputs --- */}
+        <option value="checkbox">Checkbox</option>
+        <option value="radio">Radio Button</option>
+        
+        {/* --- Other Specialized Inputs --- */}
+        <option value="file">File Upload</option>
+        <option value="color">Color Picker</option>
+        <option value="hidden">Hidden</option>
+        </select>
+          <button
+            onClick={() => handleRemoveField(index)}
+            className="p-1 hover:bg-red-500 rounded"
+          >
+            <FaTrashAlt size={12} />
+          </button>
+        </div>
+      ))}
+      <button onClick={handleAddField} className="text-indigo-400 text-sm mt-2 flex items-center gap-1"><FaPlus size={10}/> Add Field</button>
+      <h4 className="text-sm font-bold mt-4 mb-2">Button</h4>
+      <StyleInput label="Button Text" value={content.buttonText} onChange={val => onContentChange({ ...content, buttonText: val})} />
+    </>
+  )
 };
 ContactFormProperties.displayName = 'ContactFormProperties';
 
 const SplitSectionProperties = ({ element, content, onContentChange }: { element: Element, content: any, onContentChange: (c: any) => void }) => {
     const { dispatch } = useEditorContext();
     const isVideo = element.type.includes('video');
-    
+
+    const handleVideoChange = (videoSettings: any) => {
+        // Update the nested 'video' object within the section's content
+        onContentChange({ ...content, video: videoSettings });
+    };
+
     const handleAddElement = () => {
         const newElement = createNewElement('heading') as Element;
         dispatch({
@@ -3322,25 +3877,34 @@ const SplitSectionProperties = ({ element, content, onContentChange }: { element
 
     return (
         <>
-            <StyleInput 
-                label={isVideo ? "Video URL" : "Image URL"}
-                value={isVideo ? content.videoUrl : content.imageSrc} 
-                onChange={val => onContentChange({ ...content, [isVideo ? 'videoUrl' : 'imageSrc']: val })} 
-            />
+            {isVideo ? (
+                 <CollapsibleGroup title="Video Settings" open>
+                    <VideoProperties
+                        content={content.video || { url: content.videoUrl }} // Fallback for old data
+                        onContentChange={handleVideoChange}
+                    />
+                </CollapsibleGroup>
+            ) : (
+                <StyleInput
+                    label="Image URL"
+                    value={content.imageSrc}
+                    onChange={val => onContentChange({ ...content, imageSrc: val })}
+                />
+            )}
             <div className="my-4 border-t border-gray-700"></div>
             <h4 className="text-sm font-bold mb-2">Content Area</h4>
-            <p className="text-xs text-gray-400 mb-2">Add elements to the content area by dragging them onto the canvas or using the button below.</p>
+            <p className="text-xs text-gray-400 mb-2">Add elements to the content area using the button below.</p>
             <button
                 onClick={handleAddElement}
                 className="w-full flex items-center justify-center gap-2 bg-indigo-600 py-2 rounded-md hover:bg-indigo-500 text-sm"
             >
                 <FaPlus size={12} /> Add Element
             </button>
+             <ChildElementSelector element={element} />
         </>
     );
 };
 SplitSectionProperties.displayName = 'SplitSectionProperties';
-
 
 const HeroSlideComponent = ({
   element,
@@ -3426,3 +3990,135 @@ const HeroSlideProperties = ({ element, content, onContentChange }: { element: E
     );
 };
 HeroSlideProperties.displayName = 'HeroSlideProperties';
+
+const VideoProperties = ({ content, onContentChange }: { content: any; onContentChange: (c: any) => void }) => {
+    const handleCheckboxChange = (key: string, checked: boolean) => {
+        onContentChange({ ...content, [key]: checked });
+    };
+
+    return (
+        <>
+            <StyleInput
+                label="Video URL"
+                value={content.url}
+                onChange={val => onContentChange({ ...content, url: val })}
+            />
+            <div className="grid grid-cols-2 gap-x-4 gap-y-2 mt-4">
+                <label className="flex items-center gap-2 text-sm cursor-pointer">
+                    <input
+                        type="checkbox"
+                        checked={content.controls}
+                        onChange={e => handleCheckboxChange('controls', e.target.checked)}
+                    />
+                    <span>Controls</span>
+                </label>
+                <label className="flex items-center gap-2 text-sm cursor-pointer">
+                    <input
+                        type="checkbox"
+                        checked={content.autoplay}
+                        onChange={e => handleCheckboxChange('autoplay', e.target.checked)}
+                    />
+                    <span>Autoplay</span>
+                </label>
+                <label className="flex items-center gap-2 text-sm cursor-pointer">
+                    <input
+                        type="checkbox"
+                        checked={content.loop}
+                        onChange={e => handleCheckboxChange('loop', e.target.checked)}
+                    />
+                    <span>Loop</span>
+                </label>
+                <label className="flex items-center gap-2 text-sm cursor-pointer">
+                    <input
+                        type="checkbox"
+                        checked={content.muted}
+                        onChange={e => handleCheckboxChange('muted', e.target.checked)}
+                    />
+                    <span>Muted</span>
+                </label>
+            </div>
+             <p className="text-xs text-gray-500 mt-3">
+                Note: Most modern browsers require a video to be <strong>muted</strong> for autoplay to work.
+            </p>
+        </>
+    );
+};
+VideoProperties.displayName = 'VideoProperties';
+
+const WrapInColumnsProperties = ({ elementId }: { elementId: string }) => {
+    const { dispatch } = useEditorContext();
+
+    const handleWrapClick = () => {
+        dispatch({ type: 'WRAP_IN_COLUMNS', payload: { elementId } });
+    };
+
+    return (
+        <button
+            onClick={handleWrapClick}
+            className="w-full flex items-center justify-center gap-2 bg-indigo-600 py-2 rounded-md hover:bg-indigo-500 text-sm"
+        >
+            <Columns size={14} /> Add Element Beside
+        </button>
+    );
+};
+WrapInColumnsProperties.displayName = 'WrapInColumnsProperties';
+
+const SaveVersionModal = ({
+    isOpen,
+    onClose,
+    onSave,
+}: {
+    isOpen: boolean;
+    onClose: () => void;
+    onSave: (versionName: string) => Promise<void>;
+}) => {
+    const [versionName, setVersionName] = useState('');
+    const [isSaving, setIsSaving] = useState(false);
+
+    if (!isOpen) return null;
+
+    const handleSaveClick = async () => {
+        if (!versionName.trim()) return;
+        setIsSaving(true);
+        await onSave(versionName);
+        setIsSaving(false);
+        setVersionName(''); // Reset for next time
+        onClose();
+    };
+
+    return (
+        <div className="fixed inset-0 z-[100] bg-black/60 flex items-center justify-center p-4">
+            <div className="bg-gray-800 rounded-lg shadow-xl p-6 w-full max-w-md text-white border border-gray-700">
+                <div className="flex justify-between items-center mb-4">
+                    <h2 className="text-xl font-bold">Save New Version</h2>
+                    <button onClick={onClose} className="p-1 rounded-full hover:bg-gray-700" disabled={isSaving}><X size={20} /></button>
+                </div>
+                <p className="text-sm text-gray-400 mb-4">
+                    Give this version a descriptive name to easily identify it later.
+                </p>
+                <input
+                    type="text"
+                    value={versionName}
+                    onChange={(e) => setVersionName(e.target.value)}
+                    placeholder={`e.g., "Pre-launch design v2"`}
+                    className="w-full bg-gray-700 rounded-md p-3 text-sm border border-gray-600 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                    disabled={isSaving}
+                />
+                <div className="mt-6 flex justify-end gap-4">
+                    <button onClick={onClose} className="px-4 py-2 bg-gray-600 rounded-md hover:bg-gray-500 transition-colors text-sm" disabled={isSaving}>
+                        Cancel
+                    </button>
+                    <button
+                        onClick={handleSaveClick}
+                        className="px-4 py-2 bg-indigo-600 rounded-md hover:bg-indigo-500 transition-colors text-sm flex items-center gap-2 disabled:bg-indigo-800 disabled:cursor-not-allowed"
+                        disabled={isSaving || !versionName.trim()}
+                    >
+                        {isSaving ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
+                        {isSaving ? 'Saving...' : 'Save Version'}
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+SaveVersionModal.displayName = 'SaveVersionModal';

@@ -12,6 +12,7 @@
     "@aws-sdk/client-s3": "^3.917.0",
     "@dataconnect/generated": "file:src/dataconnect-generated",
     "@google/generative-ai": "^0.24.1",
+    "@react-three/fiber": "^9.4.0",
     "@tiptap/core": "^3.4.2",
     "@tiptap/extension-bubble-menu": "^3.4.2",
     "@tiptap/extension-color": "^3.4.1",
@@ -38,8 +39,10 @@
     "react-color": "^2.19.3",
     "react-dom": "19.1.0",
     "react-hot-toast": "^2.6.0",
+    "react-phone-number-input": "^3.4.13",
     "recharts": "^3.1.2",
     "swr": "^2.3.6",
+    "three": "^0.181.0",
     "yup": "^1.7.0"
   },
   "devDependencies": {
@@ -50,6 +53,7 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/three": "^0.181.0",
     "@types/use-resize-observer": "^6.0.0",
     "@types/uuid": "^10.0.0",
     "eslint": "^9",

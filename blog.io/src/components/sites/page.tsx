@@ -1,332 +1,20 @@
 'use client';
 
-import React, { useState, useEffect, ReactNode, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useRouter, usePathname } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { clearSessionClient } from '@/actions/localStorage';
 import { Site, SiteStatus, FirestoreTimestamp, UserData } from '@/utils/types/dashboard';
 import toast, { Toaster } from 'react-hot-toast';
 
 import {
-    PlusIcon, SettingsIcon, EditIcon, EyeIcon, MoreHorizontalIcon,
-    LayoutDashboardIcon, LayoutGridIcon, FileTextIcon, UserIcon, LogOutIcon, MenuIcon, XIcon, StarIcon, PencilIcon, MonitorPlayIcon, Loader2Icon,
+    PlusIcon, SettingsIcon, EditIcon, EyeIcon, MoreHorizontalIcon, XIcon, StarIcon, PencilIcon, MonitorPlayIcon, Loader2Icon,
     BarChart3Icon, Trash2Icon, SearchIcon
 } from 'lucide-react';
-import { CreateSiteModal } from '../dashboard/modal';
-
-const Sidebar = ({ isMobileMenuOpen, setIsMobileMenuOpen }: { isMobileMenuOpen: boolean; setIsMobileMenuOpen: (isOpen: boolean) => void; }) => {
-    const router = useRouter();
-    const pathname = usePathname();
-    const navItems = [
-        { href: '/dashboard', label: 'Dashboard', icon: <LayoutDashboardIcon /> },
-        { href: '/sites', label: 'My Sites', icon: <LayoutGridIcon /> },
-        { href: '/posts', label: 'All Posts', icon: <FileTextIcon /> },
-        { href: '/profile', label: 'Profile', icon: <UserIcon /> }
-    ];
-
-    const handleLogout = () => { clearSessionClient(); router.push('/login'); };
-
-    return (
-        <>
-            <aside className="hidden md:flex flex-col w-64 bg-gray-900 text-white fixed h-full border-r border-gray-800 p-4">
-                <div className="px-2 py-4 border-b border-gray-800 mb-4">
-                    <h1 className="text-2xl font-bold">
-                        blog<span className="text-fuchsia-400">.io</span>
-                    </h1>
-                </div>
-                <nav className="flex-1 space-y-2">
-                    {navItems.map((item) => (
-                        <button
-                            key={item.label}
-                            onClick={() => router.push(item.href)}
-                            className={`flex items-center gap-3 w-full text-left px-3 py-2.5 rounded-lg transition-colors ${
-                                pathname === item.href ? 'bg-fuchsia-500/20 text-fuchsia-400' : 'hover:bg-gray-800'
-                            }`}
-                        >
-                            {item.icon}
-                            <span className="font-medium">{item.label}</span>
-                        </button>
-                    ))}
-                </nav>
-                <div className="border-t border-gray-800 pt-4 mt-4">
-                    <button
-                        onClick={handleLogout}
-                        className="flex items-center gap-3 w-full px-3 py-2.5 rounded-lg hover:bg-gray-800 transition-colors text-gray-400"
-                    >
-                        <LogOutIcon />
-                        <span className="font-medium">Logout</span>
-                    </button>
-                </div>
-            </aside>
-
-            <AnimatePresence>
-                {isMobileMenuOpen && (
-                    <motion.div
-                        className="fixed inset-0 bg-black/50 z-40 md:hidden"
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        onClick={() => setIsMobileMenuOpen(false)}
-                    >
-                        <motion.aside
-                            className="fixed left-0 top-0 h-full w-64 bg-gray-900 text-white border-r border-gray-800 p-4 flex flex-col"
-                            initial={{ x: '-100%' }}
-                            animate={{ x: 0 }}
-                            exit={{ x: '-100%' }}
-                            transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-                            onClick={(e) => e.stopPropagation()}
-                        >
-                            <div className="px-2 py-4 border-b border-gray-800 mb-4 flex justify-between items-center">
-                                <h1 className="text-2xl font-bold">blog<span className="text-fuchsia-400">.io</span></h1>
-                                <button onClick={() => setIsMobileMenuOpen(false)} className="text-gray-400 hover:text-white transition-colors">
-                                    <XIcon />
-                                </button>
-                            </div>
-                            <nav className="flex-1 space-y-2">
-                                {navItems.map((item) => (
-                                    <button
-                                        key={item.label}
-                                        onClick={() => {
-                                            router.push(item.href);
-                                            setIsMobileMenuOpen(false);
-                                        }}
-                                        className={`flex items-center gap-3 w-full text-left px-3 py-2.5 rounded-lg transition-colors ${
-                                            pathname === item.href ? 'bg-fuchsia-500/20 text-fuchsia-400' : 'hover:bg-gray-800'
-                                        }`}
-                                    >
-                                        {item.icon}
-                                        <span className="font-medium">{item.label}</span>
-                                    </button>
-                                ))}
-                            </nav>
-                            <div className="border-t border-gray-800 pt-4 mt-4">
-                                <button onClick={handleLogout} className="flex items-center gap-3 w-full px-3 py-2.5 rounded-lg hover:bg-gray-800 transition-colors text-gray-400">
-                                    <LogOutIcon />
-                                    <span className="font-medium">Logout</span>
-                                </button>
-                            </div>
-                        </motion.aside>
-                    </motion.div>
-                )}
-            </AnimatePresence>
-        </>
-    );
-};
-
-const DashboardLayout = ({ children }: { children: ReactNode }) => {
-    const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-    return (
-        <div className="bg-gray-950 text-white min-h-screen font-sans flex">
-            <Sidebar isMobileMenuOpen={isMobileMenuOpen} setIsMobileMenuOpen={setIsMobileMenuOpen} />
-            <div className="flex-1 md:ml-64">
-                <header className="md:hidden flex items-center justify-between p-4 bg-gray-900 border-b border-gray-800 sticky top-0 z-20">
-                    <button onClick={() => setIsMobileMenuOpen(true)} className="p-2 rounded-md hover:bg-gray-800 text-gray-400">
-                        <MenuIcon />
-                    </button>
-                    <h1 className="text-xl font-bold">blog<span className="text-fuchsia-400">.io</span></h1>
-                    <div className="w-10"></div>
-                </header>
-                <main className="container mx-auto p-6 md:p-8">{children}</main>
-            </div>
-        </div>
-    );
-};
-
-const RenameSiteModal = ({ isOpen, onClose, site, onSiteRenamed }: {
-    isOpen: boolean,
-    onClose: () => void,
-    site: Site | null,
-    onSiteRenamed: (updatedSite: Site) => void
-}) => {
-    const [newTitle, setNewTitle] = useState('');
-    const [isSubmitting, setIsSubmitting] = useState(false);
-    const [error, setError] = useState('');
-
-    useEffect(() => {
-        if (site) {
-            setNewTitle(site.title);
-            setError('');
-        }
-    }, [site]);
-
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!site || newTitle === site.title || isSubmitting) return;
-
-        setIsSubmitting(true);
-        setError('');
-
-        try {
-            const token = localStorage.getItem("blogToken");
-            const response = await fetch(`/api/sites/${site.id}`, {
-                method: 'PATCH',
-                headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-                body: JSON.stringify({ title: newTitle })
-            });
-
-            if (!response.ok) {
-                const { error } = await response.json();
-                throw new Error(error || 'Failed to rename site.');
-            }
-
-            const updatedSite: Site = await response.json();
-            onSiteRenamed(updatedSite);
-            onClose();
-
-        } catch (err: any) {
-            setError(err.message);
-            toast.error(err.message || 'Failed to rename site.');
-        } finally {
-            setIsSubmitting(false);
-        }
-    };
-
-    return (
-        <AnimatePresence>
-            {isOpen && (
-                <motion.div
-                    className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    onClick={onClose}
-                >
-                    <motion.div
-                        className="bg-gray-800 rounded-lg shadow-xl w-full max-w-lg border border-gray-700"
-                        initial={{ scale: 0.9, opacity: 0 }}
-                        animate={{ scale: 1, opacity: 1 }}
-                        exit={{ scale: 0.9, opacity: 0 }}
-                        transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-                        onClick={(e) => e.stopPropagation()}
-                    >
-                        <div className="p-6 border-b border-gray-700">
-                            <h3 className="text-xl font-bold text-white">Rename Site</h3>
-                            <p className="text-sm text-gray-400 mt-1">Change the title for &quot;{site?.title}&quot;.</p>
-                        </div>
-                        <form onSubmit={handleSubmit}>
-                            <div className="p-6 space-y-4">
-                                <div>
-                                    <label htmlFor="siteTitle" className="block text-sm font-medium text-gray-300 mb-2">Site Title</label>
-                                    <input
-                                        type="text"
-                                        id="siteTitle"
-                                        value={newTitle}
-                                        onChange={(e) => setNewTitle(e.target.value)}
-                                        className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2.5 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-fuchsia-500"
-                                        placeholder="My Awesome Blog"
-                                    />
-                                </div>
-                                {error && <p className="text-sm text-red-400">{error}</p>}
-                            </div>
-                            <div className="px-6 py-4 bg-gray-800/50 border-t border-gray-700 flex justify-end gap-3 rounded-b-lg">
-                                <button type="button" onClick={onClose} className="px-4 py-2 rounded-lg bg-gray-700 text-sm font-semibold hover:bg-gray-600 transition-colors cursor-pointer">
-                                    Cancel
-                                </button>
-                                <button
-                                    type="submit"
-                                    disabled={isSubmitting || newTitle === site?.title || !newTitle}
-                                    className="px-4 py-2 rounded-lg bg-fuchsia-600 text-sm font-semibold hover:bg-fuchsia-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 text-white cursor-pointer"
-                                >
-                                    {isSubmitting && <Loader2Icon className="w-4 h-4 animate-spin" />}
-                                    Save Changes
-                                </button>
-                            </div>
-                        </form>
-                    </motion.div>
-                </motion.div>
-            )}
-        </AnimatePresence>
-    );
-};
-
-const DeleteSiteModal = ({ isOpen, onClose, site, onSiteDeleted }: {
-    isOpen: boolean,
-    onClose: () => void,
-    site: Site | null,
-    onSiteDeleted: (siteId: string) => void
-}) => {
-    const [isSubmitting, setIsSubmitting] = useState(false);
-    const [error, setError] = useState('');
-
-    const handleSubmit = async (e: React.FormEvent) => {
-        e.preventDefault();
-        if (!site || isSubmitting) return;
-
-        setIsSubmitting(true);
-        setError('');
-
-        try {
-            const token = localStorage.getItem("blogToken");
-            const response = await fetch(`/api/sites/${site.id}`, {
-                method: 'DELETE',
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-
-            if (!response.ok) {
-                const { error } = await response.json();
-                throw new Error(error || 'Failed to delete site.');
-            }
-
-            onSiteDeleted(site.id);
-            onClose();
-
-        } catch (err: any) {
-            setError(err.message);
-            toast.error(err.message || 'Failed to delete site.');
-        } finally {
-            setIsSubmitting(false);
-        }
-    };
-
-    return (
-        <AnimatePresence>
-            {isOpen && (
-                <motion.div
-                    className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    onClick={onClose}
-                >
-                    <motion.div
-                        className="bg-gray-800 rounded-lg shadow-xl w-full max-w-md border border-gray-700"
-                        initial={{ scale: 0.9, opacity: 0 }}
-                        animate={{ scale: 1, opacity: 1 }}
-                        exit={{ scale: 0.9, opacity: 0 }}
-                        transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-                        onClick={(e) => e.stopPropagation()}
-                    >
-                        <div className="p-6 border-b border-gray-700">
-                            <h3 className="text-xl font-bold text-red-400">Delete Site</h3>
-                            <p className="text-sm text-gray-400 mt-1">
-                                Are you sure you want to delete &quot;{site?.title}&quot;? This action is permanent and cannot be undone.
-                            </p>
-                        </div>
-                        <form onSubmit={handleSubmit}>
-                            <div className="p-6">
-                                {error && <p className="text-sm text-red-400">{error}</p>}
-                                {!error && <p className="text-sm text-gray-400">This will delete all posts, analytics, and settings associated with this site.</p>}
-                            </div>
-                            <div className="px-6 py-4 bg-gray-800/50 border-t border-gray-700 flex justify-end gap-3 rounded-b-lg">
-                                <button type="button" onClick={onClose} className="px-4 py-2 rounded-lg bg-gray-700 text-sm font-semibold hover:bg-gray-600 transition-colors cursor-pointer">
-                                    Cancel
-                                </button>
-                                <button
-                                    type="submit"
-                                    disabled={isSubmitting}
-                                    className="px-4 py-2 rounded-lg bg-red-600 text-sm font-semibold hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 cursor-pointer"
-                                >
-                                    {isSubmitting && <Loader2Icon className="w-4 h-4 animate-spin" />}
-                                    Delete Site
-                                </button>
-                            </div>
-                        </form>
-                    </motion.div>
-                </motion.div>
-            )}
-        </AnimatePresence>
-    );
-};
+import { CreateSiteModal } from '../modals/modal';
+import { DashboardLayout, DashboardSkeleton } from '../loader/skeletonLoaders';
+import { RenameSiteModal } from '../modals/renameSiteModal';
+import { DeleteSiteModal } from '../modals/deleteSiteModal';
 
 
 const SitesPageActionDropdown = ({ site, onRename, onStatusChange, onDelete }: {
@@ -419,10 +107,12 @@ const FullSitesTable = ({ sites, onRename, onToggleFavourite, onStatusChange, on
                         <th scope="col" className="px-6 py-3 w-12">Fav</th>
                         <th scope="col" className="px-6 py-3">Site Title</th>
                         <th scope="col" className="px-6 py-3">Status</th>
-                        <th scope="col" className="px-6 py-3">Views</th>
-                        <th scope="col" className="px-6 py-3">Likes</th>
-                        <th scope="col" className="px-6 py-3">Created</th>
-                        <th scope="col" className="px-6 py-3">Last Published</th>
+                        {/* --- MODIFIED COLUMNS --- */}
+                        <th scope="col" className="px-6 py-3 hidden md:table-cell">Views</th>
+                        <th scope="col" className="px-6 py-3 hidden md:table-cell">Likes</th>
+                        <th scope="col" className="px-6 py-3 hidden md:table-cell">Created</th>
+                        <th scope="col" className="px-6 py-3 hidden md:table-cell">Last Published</th>
+                        {/* --- END MODIFIED COLUMNS --- */}
                         <th scope="col" className="px-6 py-3 text-right">Actions</th>
                     </tr>
                 </thead>
@@ -448,10 +138,12 @@ const FullSitesTable = ({ sites, onRename, onToggleFavourite, onStatusChange, on
                                 )}
                             </td>
                             <td className="px-6 py-4"><StatusBadge status={site.status} /></td>
-                            <td className="px-6 py-4 text-white">{(site.stats?.views || 0).toLocaleString()}</td>
-                            <td className="px-6 py-4 text-white">{(site.stats?.likes || 0).toLocaleString()}</td>
-                            <td className="px-6 py-4 text-gray-400">{formatDate(site.createdAt)}</td>
-                            <td className="px-6 py-4 text-gray-400">{formatDate(site.lastPublishedAt)}</td>
+                            {/* --- MODIFIED COLUMNS --- */}
+                            <td className="px-6 py-4 text-white hidden md:table-cell">{(site.stats?.views || 0).toLocaleString()}</td>
+                            <td className="px-6 py-4 text-white hidden md:table-cell">{(site.stats?.likes || 0).toLocaleString()}</td>
+                            <td className="px-6 py-4 text-gray-400 hidden md:table-cell">{formatDate(site.createdAt)}</td>
+                            <td className="px-6 py-4 text-gray-400 hidden md:table-cell">{formatDate(site.lastPublishedAt)}</td>
+                            {/* --- END MODIFIED COLUMNS --- */}
                             <td className="px-6 py-4 text-right"><div className="flex justify-end">
                                 <SitesPageActionDropdown 
                                     site={site} 
@@ -513,7 +205,7 @@ const FilterControls = ({ searchQuery, setSearchQuery, filters, setFilters, sort
                     name="status"
                     value={filters.status}
                     onChange={handleFilterChange}
-                    className="w-full sm:w-auto bg-gray-900 border border-gray-700 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-fuchsia-500 cursor-pointer"
+                    className="cursor-pointer w-full sm:w-auto bg-gray-900 border border-gray-700 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-fuchsia-500 cursor-pointer"
                 >
                     <option value="all">All Statuses</option>
                     <option value="published">Published</option>
@@ -523,7 +215,7 @@ const FilterControls = ({ searchQuery, setSearchQuery, filters, setFilters, sort
                     name="isFavourite"
                     value={filters.isFavourite}
                     onChange={handleFilterChange}
-                    className="w-full sm:w-auto bg-gray-900 border border-gray-700 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-fuchsia-500 cursor-pointer"
+                    className="cursor-pointer w-full sm:w-auto bg-gray-900 border border-gray-700 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-fuchsia-500 cursor-pointer"
                 >
                     <option value="all">All Favourites</option>
                     <option value="yes">Favourites Only</option>
@@ -533,7 +225,7 @@ const FilterControls = ({ searchQuery, setSearchQuery, filters, setFilters, sort
                     name="sortBy"
                     value={sortBy}
                     onChange={(e) => setSortBy(e.target.value)}
-                    className="w-full sm:w-auto bg-gray-900 border border-gray-700 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-fuchsia-500 cursor-pointer"
+                    className="cursor-pointer w-full sm:w-auto bg-gray-900 border border-gray-700 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-fuchsia-500 cursor-pointer"
                 >
                     <option value="createdAt_desc">Newest First</option>
                     <option value="createdAt_asc">Oldest First</option>
@@ -544,60 +236,6 @@ const FilterControls = ({ searchQuery, setSearchQuery, filters, setFilters, sort
                 </select>
             </div>
         </div>
-    );
-};
-
-
-const SitesSkeleton = () => {
-    const SkeletonTable = () => (
-        <div className="bg-gray-800/50 border border-gray-700 rounded-lg mt-6 overflow-x-auto">
-            <table className="w-full text-sm text-left animate-pulse">
-                <thead className="bg-gray-800 text-xs text-gray-400 uppercase">
-                    <tr>
-                        {Array.from({ length: 8 }).map((_, i) => <th key={i} scope="col" className="px-6 py-3"><div className="h-4 bg-gray-700 rounded w-3/4"></div></th>)}
-                    </tr>
-                </thead>
-                <tbody>
-                    {Array.from({ length: 5 }).map((_, i) => (
-                        <tr key={i} className="border-b border-gray-700">
-                            <td className="px-6 py-4"><div className="h-5 w-5 bg-gray-700 rounded-full"></div></td>
-                            <td className="px-6 py-4"><div className="h-4 bg-gray-700 rounded w-full mb-2"></div><div className="h-3 bg-gray-700 rounded w-1/2"></div></td>
-                            <td className="px-6 py-4"><div className="h-5 bg-gray-700 rounded-full w-20"></div></td>
-                            <td className="px-6 py-4"><div className="h-4 bg-gray-700 rounded w-12"></div></td>
-                            <td className="px-6 py-4"><div className="h-4 bg-gray-700 rounded w-12"></div></td>
-                            <td className="px-6 py-4"><div className="h-4 bg-gray-700 rounded w-24"></div></td>
-                            <td className="px-6 py-4"><div className="h-4 bg-gray-700 rounded w-24"></div></td>
-                            <td className="px-6 py-4"><div className="h-8 w-8 bg-gray-700 rounded-md ml-auto"></div></td>
-                        </tr>
-                    ))}
-                </tbody>
-            </table>
-        </div>
-    );
-    const SkeletonCard = () => <div className="bg-gray-800/50 border border-gray-700 rounded-lg p-6 animate-pulse"><div className="h-4 bg-gray-700 rounded w-1/3 mb-4"></div><div className="h-8 bg-gray-700 rounded w-1/2"></div></div>;
-
-
-    return (
-        <DashboardLayout>
-            <header className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4 animate-pulse">
-                <div>
-                    <div className="h-10 bg-gray-700 rounded w-48 mb-3"></div>
-                    <div className="h-5 bg-gray-700 rounded w-80"></div>
-                </div>
-                <div className="h-10 w-40 bg-gray-700 rounded-lg"></div>
-            </header>
-             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 mb-8"><SkeletonCard /><SkeletonCard /><SkeletonCard /></div>
-            <div className="flex flex-col md:flex-row items-center justify-between gap-4 my-8 animate-pulse">
-                <div className="h-11 bg-gray-700 rounded-lg w-full md:w-1/2 lg:w-1/3"></div>
-                <div className="flex items-center gap-4 w-full md:w-auto">
-                    <div className="h-11 bg-gray-700 rounded-lg w-full md:w-32"></div>
-                    <div className="h-11 bg-gray-700 rounded-lg w-full md:w-36"></div>
-                </div>
-            </div>
-            <section>
-                <SkeletonTable />
-            </section>
-        </DashboardLayout>
     );
 };
 
@@ -748,7 +386,8 @@ export default function SitesPage() {
     const filteredAndSortedSites = React.useMemo(() => {
         if (!userData.sites) return [];
 
-        let filtered = userData.sites.filter(site => {
+        const filtered = userData.sites
+            .filter(site => {
             const query = searchQuery.toLowerCase();
             const matchesSearch =
                 site.title.toLowerCase().includes(query) ||
@@ -764,32 +403,44 @@ export default function SitesPage() {
                 (filters.isFavourite === 'no' && !site.isFavourite);
 
             return matchesSearch && matchesStatus && matchesFavourite;
-        });
+            })
+            // =================================================================
+            // START OF MODIFIED CODE
+            // =================================================================
+            .sort((a, b) => {
+                // Primary sort: Favourites always come first
+                if (a.isFavourite && !b.isFavourite) return -1;
+                if (!a.isFavourite && b.isFavourite) return 1;
 
-        filtered.sort((a, b) => {
-            switch (sortBy) {
-                case 'title_asc':
-                    return a.title.localeCompare(b.title);
-                case 'views_desc':
-                    return (b.stats?.views || 0) - (a.stats?.views || 0);
-                case 'likes_desc':
-                    return (b.stats?.likes || 0) - (a.stats?.likes || 0);
-                case 'createdAt_asc':
-                    return (a.createdAt?._seconds || 0) - (b.createdAt?._seconds || 0);
-                case 'lastPublishedAt_desc':
-                    return (b.lastPublishedAt?._seconds || 0) - (a.lastPublishedAt?._seconds || 0);
-                case 'createdAt_desc':
-                default:
-                    return (b.createdAt?._seconds || 0) - (a.createdAt?._seconds || 0);
-            }
-        });
+                // Secondary sort: Based on the user's selection in the dropdown
+                // If both are favourites OR both are not, sort them by the selected criteria
+                switch (sortBy) {
+                    case 'title_asc':
+                        return a.title.localeCompare(b.title);
+                    case 'views_desc':
+                        return (b.stats?.views || 0) - (a.stats?.views || 0);
+                    case 'likes_desc':
+                        return (b.stats?.likes || 0) - (a.stats?.likes || 0);
+                    case 'createdAt_asc':
+                        return (a.createdAt?._seconds || 0) - (b.createdAt?._seconds || 0);
+                    case 'lastPublishedAt_desc':
+                        return (b.lastPublishedAt?._seconds || 0) - (a.lastPublishedAt?._seconds || 0);
+                    case 'createdAt_desc':
+                    default:
+                        // This is the default sort, which is newest first
+                        return (b.createdAt?._seconds || 0) - (a.createdAt?._seconds || 0);
+                }
+            });
+            // =================================================================
+            // END OF MODIFIED CODE
+            // =================================================================
 
         return filtered;
-
     }, [userData.sites, searchQuery, filters, sortBy]);
 
 
-    if (loading) return <SitesSkeleton />;
+
+    if (loading) return <DashboardSkeleton />;
 
     return (
         <>
@@ -822,9 +473,9 @@ export default function SitesPage() {
                         onClick={() => setIsModalOpen(true)}
                         whileHover={{ scale: 1.05 }}
                         whileTap={{ scale: 0.95 }}
-                        className="bg-fuchsia-500 hover:bg-fuchsia-600 flex items-center gap-2 text-white font-semibold px-4 py-2 rounded-lg transition-colors"
+                        className="cursor-pointer bg-fuchsia-500 hover:bg-fuchsia-600 flex items-center gap-2 text-white font-semibold px-4 py-2 rounded-lg transition-colors"
                     >
-                        <PlusIcon className="w-5 h-5" /> <span className="hidden sm:inline">Create New Site</span>
+                        <PlusIcon className="w-5 h-5" /> <span className="sm:inline">Create New Site</span>
                     </motion.button>
                 </motion.header>
 

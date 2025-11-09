@@ -4,55 +4,67 @@ import { NextRequest, NextResponse } from 'next/server';
 import { FieldValue } from 'firebase-admin/firestore';
 
 export async function GET(request: NextRequest) {
-    try {
-        const authHeader = request.headers.get('authorization');
-        const token = authHeader?.split('Bearer ')[1];
+  try {
+    const authHeader = request.headers.get('authorization');
+    const token = authHeader?.split('Bearer ')[1];
 
-        if (!token) {
-            return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
-        }
-
-        const { uid } = await verifyAuthToken(token);
-
-        const userQuery = await dbAdmin.collection('users').where('uid', '==', uid).limit(1).get();
-        if (userQuery.empty) {
-            return NextResponse.json({ message: 'User profile not found' }, { status: 404 });
-        }
-        const user = userQuery.docs[0].data();
-
-        const sitesSnapshot = await dbAdmin.collection('sites').where('ownerId', '==', uid).get();
-        const allSites = sitesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-
-        const postsSnapshot = await dbAdmin.collection('posts').where('authorId', '==', uid).orderBy('createdAt', 'desc').limit(5).get();
-        const recentPosts = postsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-
-        const totalPostsSnapshot = await dbAdmin.collection('posts').where('authorId', '==', uid).get();
-        
-        const totalViews = allSites.reduce((acc, site: any) => acc + (site?.stats?.views || 0), 0);
-        
-        const stats = {
-            totalSites: allSites.length,
-            totalPosts: totalPostsSnapshot.size,
-            totalViews: totalViews,
-        };
-
-        const sortedSites = allSites.sort((a: any, b: any) => {
-            const timeA = a.createdAt?._seconds || 0;
-            const timeB = b.createdAt?._seconds || 0;
-            return timeB - timeA;
-        });
-
-        return NextResponse.json({ user, sites: sortedSites, recentPosts, stats });
-
-    } catch (error) {
-        console.error('Error fetching dashboard data:', error);
-        if (error instanceof Error && error.message.includes('token')) {
-             return NextResponse.json({ message: 'Authentication error' }, { status: 401 });
-        }
-        return NextResponse.json({ message: 'Internal Server Error' }, { status: 500 });
+    if (!token) {
+      return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
     }
-}
 
+    const { uid } = await verifyAuthToken(token);
+
+    const userQuery = await dbAdmin.collection('users').where('uid', '==', uid).limit(1).get();
+    if (userQuery.empty) {
+      return NextResponse.json({ message: 'User profile not found' }, { status: 404 });
+    }
+
+    const user = userQuery.docs[0].data();
+
+    const sitesSnapshot = await dbAdmin.collection('sites').where('ownerId', '==', uid).get();
+    const allSites = sitesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+    const postsSnapshot = await dbAdmin
+      .collection('posts')
+      .where('authorId', '==', uid)
+      .orderBy('createdAt', 'desc')
+      .limit(5)
+      .get();
+
+    const recentPosts = postsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+    const totalPostsSnapshot = await dbAdmin.collection('posts').where('authorId', '==', uid).get();
+
+    const totalViews = allSites.reduce((acc, site: any) => acc + (site?.stats?.views || 0), 0);
+
+    const stats = {
+      totalSites: allSites.length,
+      totalPosts: totalPostsSnapshot.size,
+      totalViews,
+    };
+
+    const sortedSites = allSites.sort((a: any, b: any) => {
+      if (a.isFavourite && !b.isFavourite) return -1;
+      if (!a.isFavourite && b.isFavourite) return 1;
+      const timeA = a.createdAt?._seconds || 0;
+      const timeB = b.createdAt?._seconds || 0;
+      return timeB - timeA;
+    });
+
+    return NextResponse.json({
+      user,
+      sites: sortedSites,
+      recentPosts,
+      stats,
+    });
+  } catch (error) {
+    console.error('Error fetching dashboard data:', error);
+    if (error instanceof Error && error.message.includes('token')) {
+      return NextResponse.json({ message: 'Authentication error' }, { status: 401 });
+    }
+    return NextResponse.json({ message: 'Internal Server Error' }, { status: 500 });
+  }
+}
 
 export async function POST(request: NextRequest) {
     try {

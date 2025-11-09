@@ -74,6 +74,24 @@ export async function PATCH(request: NextRequest) {
         if (body.photoURL !== undefined) {
             updateData.photoURL = body.photoURL;
         }
+        if (body.mobile !== undefined) {
+            updateData.mobile = body.mobile;
+        }
+        if (body.address !== undefined) {
+            updateData.address = body.address;
+        }
+
+        if (body.emailVerified !== undefined) {
+            updateData.emailVerified = body.emailVerified;
+        }
+
+        if (body.linkedin !== undefined) {
+            updateData.linkedin = body.linkedin;
+        }
+
+        if (body.github !== undefined) {
+            updateData.github = body.github;
+        }
 
         // Check if any fields were actually provided
         if (Object.keys(updateData).length <= 1) {

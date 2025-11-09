@@ -25,6 +25,7 @@ export type SiteStatus = 'published' | 'draft';
  * Represents a single site object.
  */
 export interface Site {
+  isFavourite: boolean;
   id: string;
   title: string;
   subdomain: string;

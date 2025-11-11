@@ -59,10 +59,19 @@ export interface Element {
 
 export type PageContent = Element[];
 
+export interface GlobalItem {
+  name: string;
+  value: string;
+}
+
 export interface PageStyles {
   fontFamily?: string;
   backgroundColor?: string;
-  [key: string]: string | undefined;
+  color?: string;
+  globalCss?: string;
+  globalColors?: GlobalItem[];
+  globalFonts?: GlobalItem[];
+  [key: string]: string | GlobalItem[] | undefined; // now allows those arrays
 }
 
 export interface SiteData {

@@ -1,160 +1,61 @@
 'use client';
 
-import React, { useState, useReducer, useEffect, useRef, createContext, useContext, useMemo } from 'react';
+import React, { useState, useReducer, useEffect, useRef, createContext, useContext } from 'react';
 import Head from 'next/head';
 import { useParams, useRouter } from 'next/navigation';
 import { produce } from 'immer';
 import useSWR, { mutate } from 'swr';
 import {
   FaMobileAlt, FaTabletAlt, FaDesktop, FaArrowLeft, FaUndo, FaRedo, FaTrashAlt,
-  FaBold, FaItalic, FaUnderline, FaLink, FaPlus
+  FaBold, FaItalic, FaUnderline, FaLink, FaPlus,
+  FaLayerGroup,
+  FaSlidersH,
+  FaBars,
+  FaTimes
 } from 'react-icons/fa';
-import {
-  PageContent, Element, ElementType, SiteData, PageStyles,
+import { Element, ElementType, PageStyles,
 } from './editor';
 import {
-  Menu, X, ChevronDown, Rows, Columns, Image as ImageIcon, Type, List as ListIcon, Video, Link as LinkIcon, Minus, Square, LayoutTemplate, UploadCloud,
-  Star, Sparkles, Settings, History, LucideProps, RectangleHorizontal, LayoutPanelLeft, UserSquare, FileText, BookImage, Layers, MessageSquare, PanelRight, Loader2, CheckCircle2, AlertCircle, Clock, Check, Code, Quote, GitBranch, MessageCircleQuestion, Footprints, Captions, ListOrdered, GalleryHorizontal, ArrowLeftCircle, ArrowRightCircle, GalleryThumbnails, Copy, SlidersHorizontal, Replace, ChevronsUpDown, GalleryVerticalEnd, Presentation, ExternalLink,
+  Menu, X, Rows, Columns, Image as ImageIcon, Type, List as ListIcon, Video, Link as LinkIcon, Minus, Square, LayoutTemplate, UploadCloud,
+  Star, Sparkles, Settings, History, RectangleHorizontal, LayoutPanelLeft, UserSquare, FileText, BookImage, Layers, MessageSquare, PanelRight, Loader2, Clock, Check, Quote, GitBranch, MessageCircleQuestion, Footprints, Captions, ListOrdered, GalleryHorizontal, GalleryThumbnails, Copy, SlidersHorizontal, Replace, ChevronsUpDown, GalleryVerticalEnd, Presentation,
   Undo2,
   Eye
 } from 'lucide-react';
 import * as lucideIcons from 'lucide-react';
+import { AccordionProperties, AutoScrollProperties, ChildElementSelector, CollapsibleGroup, ContactFormProperties, DraggableItem, DynamicStyleSheet, EditorAction, EditorState, FaqProperties, FeatureBlockProperties, FeatureGridProperties, getUniqueId, HeroProperties, HeroSlideProperties, initialState, SaveStatusIndicator, SingleAutoScrollProperties, SliderDelayProperties, SplitSectionProperties, StepBlockProperties, StepsProperties, TestimonialProperties, VideoProperties, WrapInColumnsProperties } from './properties';
+import { apiClient, generateContentWithGemini, getAuthToken, getScreenSizeClass } from './common';
+import { AccordionComponent, AutoScrollComponent, FaqComponent, FeatureBlockComponent, HeroComponent, HeroSlideComponent, HeroSliderComponent, HorizontalScrollComponent, ImageCarouselComponent, NavbarComponent, SingleAutoScrollComponent, StepBlockComponent, StepsComponent, TestimonialComponent } from './components';
+import { StyleInput } from './inputs';
+import { SaveVersionModal } from './modals';
+import Image from 'next/image';
 
-const generateContentWithGemini = async (prompt: string): Promise<string> => {
-    try {
-        const response = await fetch('/api/generate-layout', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ prompt }),
-        });
-        if (!response.ok) throw new Error('Failed to generate content');
-        const data = await response.json();
-        return data.text;
-    } catch (error) {
-        console.error("Client-side Gemini Error:", error);
-        return "Error: Could not generate content.";
-    }
+export type DraggableItemProps = {
+  type: string;
+  icon: any;
+  label: string;
 };
 
-const getAuthToken = (): string | null => {
-    if (typeof window === 'undefined') return null;
-    return localStorage.getItem("blogToken");
-};
+export const GlobalCssPanel = () => {
+    const { state, dispatch } = useEditorContext();
+    const { pageStyles } = state;
 
-const apiClient = {
-  fetchSite: async (siteId: string): Promise<SiteData> => {
-      if (typeof window === 'undefined') {
-          return Promise.reject(new Error('Cannot fetch on server'));
-      }
-      const token = getAuthToken();
-      if (!token) throw new Error('Authentication token not found');
-      const response = await fetch(`/api/sites/${siteId}`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (!response.ok) {
-          throw new Error('Failed to fetch site data');
-      }
-      return response.json();
-  },
-  saveSiteDraft: async (siteId: string, data: { content: PageContent, pageStyles: PageStyles }): Promise<{ success: boolean }> => {
-      const token = getAuthToken();
-      if (!token) throw new Error('Authentication token not found');
-      const response = await fetch(`/api/sites/${siteId}`, {
-          method: 'PUT',
-          headers: {
-              'Authorization': `Bearer ${token}`,
-              'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(data),
-      });
-      if (!response.ok) {
-          throw new Error('Failed to save site draft');
-      }
-      return { success: true };
-  },
-  getHistory: async (siteId: string): Promise<{ history: any[] }> => {
-      const token = getAuthToken();
-      if (!token) throw new Error('Authentication token not found');
-      const response = await fetch(`/api/sites/${siteId}/history`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (!response.ok) throw new Error('Failed to fetch history');
-      return response.json();
-  },
-  saveVersion: async (siteId: string, data: { content: PageContent, pageStyles: PageStyles, versionName: string }): Promise<{ success: boolean }> => {
-      const token = getAuthToken();
-      if (!token) throw new Error('Authentication token not found');
+    const handleCssChange = (css: string) => {
+        dispatch({ type: 'SET_PAGE_STYLES', payload: { globalCss: css } });
+    };
 
-      const payload = {
-          content: data.content,
-          pageStyles: data.pageStyles,
-          versionName: data.versionName,
-      };
-      
-      const response = await fetch(`/api/sites/${siteId}/history`, {
-          method: 'POST',
-          headers: {
-              'Authorization': `Bearer ${token}`,
-              'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(payload),
-      });
-      if (!response.ok) throw new Error('Failed to save version');
-      return { success: true };
-  },
-};
-
-type EditorAction =
-  | { type: 'SET_INITIAL_STATE'; payload: { content: PageContent, pageStyles: PageStyles } }
-  | { type: 'ADD_ELEMENT'; payload: { elements: Element[]; parentId: string; index: number } }
-  | { type: 'UPDATE_ELEMENT_STYLES'; payload: { elementId: string; styles: object; breakpoint: 'desktop' | 'tablet' | 'mobile'; state: 'default' | 'hover' } }
-  | { type: 'UPDATE_ELEMENT_ATTRIBUTE'; payload: { elementId: string; attribute: 'htmlId' | 'className'; value: string } }
-  | { type: 'UPDATE_ELEMENT_CONTENT'; payload: { elementId: string; content: string } }
-  | { type: 'DELETE_ELEMENT'; payload: { elementId: string } }
-  | { type: 'DUPLICATE_ELEMENT'; payload: { elementId: string } }
-  | { type: 'MOVE_ELEMENT'; payload: { draggedId: string; targetParentId: string; targetIndex: number } }
-  | { type: 'SET_SELECTED_ELEMENT'; payload: string | null }
-  | { type: 'SET_PAGE_STYLES'; payload: object }
-  | { type: 'ADD_HISTORY' }
-  | { type: 'UNDO' }
-  | { type: 'REDO' }
-  | { type: 'REVERT_TO_VERSION'; payload: { content: PageContent, pageStyles: PageStyles } }
-  | { type: 'WRAP_IN_COLUMNS'; payload: { elementId: string } }
-  | { type: 'SET_PAGE_CONTENT'; payload: PageContent };;
-
-interface EditorState {
-  pageContent: PageContent;
-  selectedElementId: string | null;
-  pageStyles: PageStyles;
-  history: { content: PageContent; timestamp: number }[];
-  historyIndex: number;
+    return (
+        <div>
+            <h3 className="text-lg font-bold mb-2">Global Stylesheet</h3>
+            <p className="text-xs text-gray-400 mb-4">Add custom CSS classes here. They will be available to all elements on the page.</p>
+            <textarea
+                className="w-full h-40 bg-gray-800 text-white font-mono text-xs p-2 rounded-md border border-gray-700 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                value={pageStyles.globalCss || ''}
+                onChange={(e) => handleCssChange(e.target.value)}
+            />
+        </div>
+    )
 }
-
-const initialState: EditorState = {
-  pageContent: [],
-  selectedElementId: null,
-  pageStyles: {
-    fontFamily: "'Inter', sans-serif",
-    backgroundColor: '#f0f2f5',
-    color: '#111827',
-    globalCss: '.custom-class {\n  background-color: orange;\n}\n\n.no-scrollbar::-webkit-scrollbar {\n  display: none;\n}\n\n.no-scrollbar {\n  -ms-overflow-style: none;\n  scrollbar-width: none;\n}',
-    globalColors: [
-      { name: 'Primary', value: '#4f46e5' },
-      { name: 'Secondary', value: '#10b981' },
-      { name: 'Accent', value: '#f59e0b' },
-      { name: 'Text', value: '#111827' },
-      { name: 'Background', value: '#ffffff' },
-    ],
-    globalFonts: [
-      { name: 'Heading', value: "'Inter', sans-serif" },
-      { name: 'Body', value: "'Inter', sans-serif" },
-    ]
-  },
-  history: [],
-  historyIndex: -1,
-};
-
-const getUniqueId = (type: ElementType) => `${type}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+GlobalCssPanel.displayName = 'GlobalCssPanel';
 
 const editorReducer = produce((draft: EditorState, action: EditorAction) => {
   const addHistoryEntry = () => {
@@ -176,7 +77,7 @@ const editorReducer = produce((draft: EditorState, action: EditorAction) => {
       }
       if (element.type === 'columns') {
         try {
-          const content = JSON.parse(element.content);
+          const content = JSON.parse(element?.content || '');
           for (const col of content.columns) {
             if (findAndTraverse(col.children, callback, element)) {
               element.content = JSON.stringify(content, null, 2);
@@ -219,7 +120,7 @@ const editorReducer = produce((draft: EditorState, action: EditorAction) => {
              return true;
           }
           if (parent.type === 'columns') {
-            const content = JSON.parse(parent.content);
+            const content = JSON.parse(parent?.content || '');
             const col = content.columns.find((c: {id: string}) => c.id === parentId);
             if (col) {
               if (col.children == null) col.children = [];
@@ -243,7 +144,7 @@ const editorReducer = produce((draft: EditorState, action: EditorAction) => {
           const element = elements[i];
           if (element.id === elementId) {
             const newColumnsElement = createNewElement('columns') as Element;
-            const content = JSON.parse(newColumnsElement.content);
+            const content = JSON.parse(newColumnsElement?.content || '');
             content.columns[0].children.push(element); 
             newColumnsElement.content = JSON.stringify(content, null, 2);
             
@@ -258,7 +159,7 @@ const editorReducer = produce((draft: EditorState, action: EditorAction) => {
 
           if (element.type === 'columns') {
             try {
-              const content = JSON.parse(element.content);
+              const content = JSON.parse(element?.content || '');
               for (const col of content.columns) {
                 if (findAndWrap(col.children)) {
                   element.content = JSON.stringify(content, null, 2);
@@ -290,7 +191,7 @@ const editorReducer = produce((draft: EditorState, action: EditorAction) => {
               if (el.children && findAndRemoveMutative(el.children, elementId)) return true;
               if (el.type === 'columns') {
                   try {
-                      const content = JSON.parse(el.content);
+                      const content = JSON.parse(el?.content || '');
                       let found = false;
                       for (const col of content.columns) {
                           if (findAndRemoveMutative(col.children, elementId)) {
@@ -321,7 +222,7 @@ const editorReducer = produce((draft: EditorState, action: EditorAction) => {
                 return true;
             }
             if (parent.type === 'columns') {
-              const content = JSON.parse(parent.content);
+              const content = JSON.parse(parent?.content || '');
               const col = content.columns.find((c: { id: string }) => c.id === targetParentId);
               if (col) {
                 if (col.children == null) col.children = [];
@@ -382,7 +283,7 @@ const editorReducer = produce((draft: EditorState, action: EditorAction) => {
           if (el.children && findAndDelete(el.children, elementId)) return true;
           if (el.type === 'columns') {
             try {
-              const content = JSON.parse(el.content);
+              const content = JSON.parse(el?.content || '');
               let found = false;
               for (const col of content.columns) {
                 if (findAndDelete(col.children, elementId)) {
@@ -464,7 +365,7 @@ const editorReducer = produce((draft: EditorState, action: EditorAction) => {
                 }
                 if (element.type === 'columns') {
                     try {
-                        const content = JSON.parse(element.content);
+                        const content = JSON.parse(element?.content || '');
                         for (const col of content.columns) {
                             if (findAndDuplicate(col.children)) {
                                 element.content = JSON.stringify(content, null, 2);
@@ -515,7 +416,7 @@ const editorReducer = produce((draft: EditorState, action: EditorAction) => {
   }
 });
 
-const createNewElement = (type: ElementType): Element | Element[] => {
+export const createNewElement = (type: ElementType): Element | Element[] => {
     const id = getUniqueId(type);
     const defaultStyles = { desktop: { default: {}, hover: {} }, tablet: { default: {}, hover: {} }, mobile: { default: {}, hover: {} } };
     const baseElement: Omit<Element, 'id'> & { type: ElementType } = { type, styles: JSON.parse(JSON.stringify(defaultStyles)), children: [] };
@@ -873,9 +774,9 @@ const createNewElement = (type: ElementType): Element | Element[] => {
     return { ...baseElement, id };
 };
 
-const EditorContext = createContext<{ state: EditorState; dispatch: React.Dispatch<EditorAction> } | null>(null);
+export const EditorContext = createContext<{ state: EditorState; dispatch: React.Dispatch<EditorAction> } | null>(null);
 
-const useEditorContext = () => {
+export const useEditorContext = () => {
   const context = useContext(EditorContext);
   if (!context) { throw new Error('useEditorContext must be used within an EditorProvider'); }
   return context;
@@ -890,23 +791,61 @@ export default function EditorPage() {
   useEffect(() => {
     setIsClient(true);
   }, []);
-  
+
   const token = isClient ? getAuthToken() : null;
 
-  const { data: currentSite, error: apiError, isLoading } = useSWR(
+  const {
+    data: currentSite,
+    error: apiError,
+    isLoading,
+  } = useSWR(
     siteId && token ? [`/api/sites/${siteId}`, token] : null,
     () => apiClient.fetchSite(siteId)
   );
 
   const [state, dispatch] = useReducer(editorReducer, initialState);
-  const [screenSize, setScreenSize] = useState<'desktop' | 'tablet' | 'mobile'>('desktop');
-  const [activePanel, setActivePanel] = useState<'properties' | 'history' | 'versions'>('properties');
-  const [leftSidebarTab, setLeftSidebarTab] = useState<'elements' | 'layers' | 'css' | 'templates'>('elements');
-  const [saveStatus, setSaveStatus] = useState<'saved' | 'unsaved' | 'saving' | 'error'>('saved');
+  const [screenSize, setScreenSize] = useState<'desktop' | 'tablet' | 'mobile'>(
+    'desktop'
+  );
+  const [activePanel, setActivePanel] = useState<
+    'properties' | 'history' | 'versions'
+  >('properties');
+  const [leftSidebarTab, setLeftSidebarTab] = useState<
+    'elements' | 'layers' | 'css' | 'templates'
+  >('elements');
+  const [saveStatus, setSaveStatus] = useState<
+    'saved' | 'unsaved' | 'saving' | 'error'
+  >('saved');
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
-  const [isSaveVersionModalOpen, setIsSaveVersionModalOpen] = useState(false); // Add this state
+  const [isSaveVersionModalOpen, setIsSaveVersionModalOpen] = useState(false);
   const initialContentLoaded = useRef(false);
   const hasUnsavedChanges = useRef(false);
+
+  const [isMobileView, setIsMobileView] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isLeftPanelOpenMobile, setIsLeftPanelOpenMobile] = useState(false);
+  const [isRightPanelOpenMobile, setIsRightPanelOpenMobile] = useState(false);
+
+  useEffect(() => {
+    if (!isClient) return;
+
+    const mediaQuery = window.matchMedia('(max-width: 768px)');
+    const handleResize = (e: MediaQueryListEvent | MediaQueryList) => {
+      setIsMobileView(e.matches);
+      if (e.matches) {
+        setScreenSize('mobile');
+      } else {
+        setIsMobileMenuOpen(false);
+        setIsLeftPanelOpenMobile(false);
+        setIsRightPanelOpenMobile(false);
+        setScreenSize('desktop');
+      }
+    };
+
+    handleResize(mediaQuery);
+    mediaQuery.addEventListener('change', handleResize);
+    return () => mediaQuery.removeEventListener('change', handleResize);
+  }, [isClient]);
 
   useEffect(() => {
     if (currentSite && !initialContentLoaded.current) {
@@ -915,7 +854,7 @@ export default function EditorPage() {
         payload: {
           content: currentSite.draftContent || [],
           pageStyles: currentSite.draftPageStyles || initialState.pageStyles,
-        }
+        },
       });
       dispatch({ type: 'ADD_HISTORY' });
       initialContentLoaded.current = true;
@@ -927,37 +866,44 @@ export default function EditorPage() {
     hasUnsavedChanges.current = true;
     setSaveStatus('unsaved');
   }, [state.pageContent, state.pageStyles, state.history.length]);
-  
+
   useEffect(() => {
     if (!initialContentLoaded.current) return;
-    
+
     const handler = setTimeout(async () => {
       if (hasUnsavedChanges.current) {
         setSaveStatus('saving');
         try {
           await apiClient.saveSiteDraft(siteId, {
             content: state.pageContent,
-            pageStyles: state.pageStyles
+            pageStyles: state.pageStyles,
           });
           setSaveStatus('saved');
           hasUnsavedChanges.current = false;
         } catch (err) {
-          console.error("Auto-save failed:", err);
+          console.error('Auto-save failed:', err);
           setSaveStatus('error');
         }
       }
     }, 2500);
-    
+
     return () => clearTimeout(handler);
   }, [state.pageContent, state.pageStyles, siteId]);
 
   const handleAiGenerate = (elements: Element[]) => {
-    if (window.confirm('This will replace your current page content. Are you sure?')) {
+    if (
+      window.confirm(
+        'This will replace your current page content. Are you sure?'
+      )
+    ) {
       dispatch({ type: 'SET_PAGE_CONTENT', payload: elements });
     }
   };
 
-  const findElement = (elements: Element[], elementId: string): Element | null => {
+  const findElement = (
+    elements: Element[],
+    elementId: string
+  ): Element | null => {
     for (const el of elements) {
       if (el.id === elementId) return el;
       if (el.children?.length) {
@@ -967,117 +913,311 @@ export default function EditorPage() {
       if (el.type === 'columns') {
         try {
           const content = JSON.parse(el.content);
-          for(const col of content.columns) {
+          for (const col of content.columns) {
             const found = findElement(col.children, elementId);
             if (found) return found;
           }
-        } catch (e) { }
+        } catch (e) {}
       }
     }
     return null;
   };
 
-  const selectedElement = state.selectedElementId ? findElement(state.pageContent, state.selectedElementId) : null;
+  const selectedElement = state.selectedElementId
+    ? findElement(state.pageContent, state.selectedElementId)
+    : null;
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'z') { e.preventDefault(); dispatch({ type: 'UNDO' }); }
-      if ((e.ctrlKey || e.metaKey) && e.key === 'y') { e.preventDefault(); dispatch({ type: 'REDO' }); }
-      const target = e.target as HTMLElement;
-      if ((e.key === 'Delete' || e.key === 'Backspace') && state.selectedElementId && !['input', 'textarea'].includes(target.tagName.toLowerCase()) && !target.isContentEditable) {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
         e.preventDefault();
-        dispatch({ type: 'DELETE_ELEMENT', payload: { elementId: state.selectedElementId } });
+        dispatch({ type: 'UNDO' });
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'y') {
+        e.preventDefault();
+        dispatch({ type: 'REDO' });
+      }
+      const target = e.target as HTMLElement;
+      if (
+        (e.key === 'Delete' || e.key === 'Backspace') &&
+        state.selectedElementId &&
+        !['input', 'textarea'].includes(target.tagName.toLowerCase()) &&
+        !target.isContentEditable
+      ) {
+        e.preventDefault();
+        dispatch({
+          type: 'DELETE_ELEMENT',
+          payload: { elementId: state.selectedElementId },
+        });
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [state.selectedElementId]);
 
-  // MODIFIED: This function now opens the modal
   const handleSaveVersion = () => {
     setIsSaveVersionModalOpen(true);
   };
 
-  // NEW: This function handles the actual API call after getting the version name
   const handleConfirmSaveVersion = async (versionName: string) => {
     setSaveStatus('saving');
     try {
       await apiClient.saveVersion(siteId, {
         content: state.pageContent,
         pageStyles: state.pageStyles,
-        versionName: versionName
+        versionName: versionName,
       });
       setSaveStatus('saved');
       hasUnsavedChanges.current = false;
-      mutate(`/api/sites/${siteId}/history`); // Re-fetch history to show the new version
-    } catch(err) {
-      console.error("Save version failed:", err);
+      mutate(`/api/sites/${siteId}/history`);
+    } catch (err) {
+      console.error('Save version failed:', err);
       setSaveStatus('error');
     }
+    setIsSaveVersionModalOpen(false);
   };
 
-  if (!isClient || isLoading) return <div className="flex items-center justify-center h-screen bg-gray-900 text-white">Loading Editor...</div>;
-  if (apiError) return <div className="flex items-center justify-center h-screen bg-gray-900 text-white">Failed to load site data.</div>;
-  if (!token) return <div className="flex items-center justify-center h-screen bg-gray-900 text-white">Authentication token not found. Please log in again.</div>;
-  if (!currentSite && token) return <div className="flex items-center justify-center h-screen bg-gray-900 text-white">Site not found or you do not have permission to edit it.</div>;
+  if (!isClient || isLoading)
+    return (
+      <div className="flex items-center justify-center h-screen bg-gray-900 text-white">
+        Loading Editor...
+      </div>
+    );
+  if (apiError)
+    return (
+      <div className="flex items-center justify-center h-screen bg-gray-900 text-white">
+        Failed to load site data.
+      </div>
+    );
+  if (!token)
+    return (
+      <div className="flex items-center justify-center h-screen bg-gray-900 text-white">
+        Authentication token not found. Please log in again.
+      </div>
+    );
+  if (!currentSite && token)
+    return (
+      <div className="flex items-center justify-center h-screen bg-gray-900 text-white">
+        Site not found or you do not have permission to edit it.
+      </div>
+    );
+
+  const renderScreenSizeButtons = () => (
+    <div className="flex items-center gap-1 bg-gray-800 p-1 rounded-lg">
+      {['desktop', 'tablet', 'mobile'].map((size) => (
+        <button
+          key={size}
+          onClick={() => setScreenSize(size as any)}
+          className={`p-2 rounded-md transition-colors ${
+            screenSize === size
+              ? 'bg-indigo-600 text-white'
+              : 'hover:bg-gray-700'
+          }`}
+          title={`${size.charAt(0).toUpperCase() + size.slice(1)} View`}
+        >
+          {size === 'desktop' && <FaDesktop />}
+          {size === 'tablet' && <FaTabletAlt />}
+          {size === 'mobile' && <FaMobileAlt />}
+        </button>
+      ))}
+    </div>
+  );
+
+  const renderActionButtons = (isMobile = false) => (
+    <div
+      className={
+        isMobile
+          ? 'flex flex-col gap-2 w-full'
+          : 'flex items-center gap-4'
+      }
+    >
+      <SaveStatusIndicator status={saveStatus} />
+      <div className={isMobile ? 'flex flex-col gap-2' : 'flex items-center gap-1'}>
+        <button
+          onClick={() => dispatch({ type: 'UNDO' })}
+          disabled={state.historyIndex <= 0}
+          className={`p-2 rounded-md hover:bg-gray-700 transition-colors disabled:opacity-50 ${isMobile ? 'w-full text-left' : ''}`}
+          title="Undo"
+        >
+          <FaUndo className={isMobile ? 'inline mr-2' : ''} />
+          {isMobile && 'Undo'}
+        </button>
+        <button
+          onClick={() => dispatch({ type: 'REDO' })}
+          disabled={state.historyIndex >= state.history.length - 1}
+          className={`p-2 rounded-md hover:bg-gray-700 transition-colors disabled:opacity-50 ${isMobile ? 'w-full text-left' : ''}`}
+          title="Redo"
+        >
+          <FaRedo className={isMobile ? 'inline mr-2' : ''} />
+          {isMobile && 'Redo'}
+        </button>
+      </div>
+
+      <button
+        onClick={handleSaveVersion}
+        className={`flex items-center justify-center gap-2 px-4 py-2 bg-gray-700 rounded-md hover:bg-gray-600 transition-colors ${isMobile ? 'w-full' : ''}`}
+      >
+        <Check size={16} />
+        <span>Save Version</span>
+      </button>
+      <button
+        onClick={() => setIsAiModalOpen(true)}
+        className={`flex items-center justify-center gap-2 px-4 py-2 bg-purple-600 rounded-md hover:bg-purple-500 transition-colors ${isMobile ? 'w-full' : ''}`}
+        title="Generate Page Layout with AI"
+      >
+        <Sparkles size={16} />
+        <span>AI Generate</span>
+      </button>
+      <a
+        href={`/live-preview/${siteId}`}
+        target="_blank"
+        rel="noopener noreferrer"
+        className={`inline-flex items-center justify-center px-3 py-2 bg-teal-600 rounded-md hover:bg-teal-500 transition-colors ${isMobile ? 'w-full' : ''}`}
+      >
+        <Eye size={16} className="mr-1" />
+        Live Preview
+      </a>
+      <button
+        onClick={() => {}}
+        className={`flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 rounded-md hover:bg-indigo-500 transition-colors ${isMobile ? 'w-full' : ''}`}
+      >
+        <Sparkles size={16} />
+        <span>Publish</span>
+      </button>
+    </div>
+  );
 
   return (
     <EditorContext.Provider value={{ state, dispatch }}>
-      <div className="flex h-screen bg-gray-800 text-white font-sans antialiased">
+      <div className="flex h-screen bg-gray-800 text-white font-sans antialiased overflow-hidden">
         <Head>
           <title>{currentSite?.title || 'Editor'} - Editor</title>
           <link rel="preconnect" href="https://fonts.googleapis.com" />
-          <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-          <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+          <link
+            rel="preconnect"
+            href="https://fonts.gstatic.com"
+            crossOrigin="anonymous"
+          />
+          <link
+            href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+            rel="stylesheet"
+          />
         </Head>
 
-        <DynamicStyleSheet pageStyles={state.pageStyles}/>
+        <DynamicStyleSheet pageStyles={state.pageStyles} />
 
         <header className="fixed top-0 left-0 right-0 z-50 flex h-16 items-center justify-between px-4 bg-gray-900/80 backdrop-blur-md border-b border-gray-700">
           <div className="flex items-center gap-4">
-            <button onClick={() => router.back()} className="p-2 rounded-md hover:bg-gray-700 transition-colors"><FaArrowLeft /></button>
-            <h1 className="text-xl font-semibold">{currentSite?.title || 'New Site'}</h1>
-            <div className="flex items-center gap-1 bg-gray-800 p-1 rounded-lg">
-              {['desktop', 'tablet', 'mobile'].map((size) => (
-                <button key={size} onClick={() => setScreenSize(size as any)} className={`p-2 rounded-md transition-colors ${screenSize === size ? 'bg-indigo-600 text-white' : 'hover:bg-gray-700'}`} title={`${size.charAt(0).toUpperCase() + size.slice(1)} View`}>
-                  {size === 'desktop' && <FaDesktop />}
-                  {size === 'tablet' && <FaTabletAlt />}
-                  {size === 'mobile' && <FaMobileAlt />}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="flex items-center gap-4">
-            <SaveStatusIndicator status={saveStatus} />
-            <button onClick={() => dispatch({ type: 'UNDO' })} disabled={state.historyIndex <= 0} className="p-2 rounded-md hover:bg-gray-700 transition-colors disabled:opacity-50" title="Undo"><FaUndo /></button>
-            <button onClick={() => dispatch({ type: 'REDO' })} disabled={state.historyIndex >= state.history.length - 1} className="p-2 rounded-md hover:bg-gray-700 transition-colors disabled:opacity-50" title="Redo"><FaRedo /></button>
-            <button onClick={handleSaveVersion} className="flex items-center gap-2 px-4 py-2 bg-gray-700 rounded-md hover:bg-gray-600 transition-colors"><Check size={16}/><span>Save Version</span></button>
             <button
-              onClick={() => setIsAiModalOpen(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-purple-600 rounded-md hover:bg-purple-500 transition-colors"
-              title="Generate Page Layout with AI"
+              onClick={() => router.back()}
+              className="p-2 rounded-md hover:bg-gray-700 transition-colors"
             >
-              <Sparkles size={16} />
-              <span>AI Generate</span>
+              <FaArrowLeft />
             </button>
-           <a
-            href={`/live-preview/${siteId}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center px-3 py-2 bg-teal-600 rounded-md hover:bg-teal-500 transition-colors"
+            <h1 className="text-xl font-semibold truncate max-w-[150px] sm:max-w-xs">
+              {currentSite?.title || 'New Site'}
+            </h1>
+            <div className="hidden md:flex">{renderScreenSizeButtons()}</div>
+          </div>
+
+          <div className="hidden md:flex items-center gap-4">
+            {renderActionButtons(false)}
+          </div>
+
+          <div className="flex md:hidden items-center gap-2">
+            <button
+              onClick={() => {
+                setIsLeftPanelOpenMobile(!isLeftPanelOpenMobile);
+                setIsRightPanelOpenMobile(false);
+              }}
+              className={`p-2 rounded-md ${isLeftPanelOpenMobile ? 'bg-indigo-600 text-white' : 'hover:bg-gray-700'}`}
+              title="Toggle Elements Panel"
             >
-            <Eye size={16} className="mr-1" />
-            Live Preview
-            </a>
-            <button onClick={() => {}} className="flex items-center gap-2 px-4 py-2 bg-indigo-600 rounded-md hover:bg-indigo-500 transition-colors"><Sparkles size={16} /><span>Publish</span></button>
+              <FaLayerGroup />
+            </button>
+            <button
+              onClick={() => {
+                setIsRightPanelOpenMobile(!isRightPanelOpenMobile);
+                setIsLeftPanelOpenMobile(false);
+              }}
+              className={`p-2 rounded-md ${isRightPanelOpenMobile ? 'bg-indigo-600 text-white' : 'hover:bg-gray-700'}`}
+              title="Toggle Properties Panel"
+            >
+              <FaSlidersH />
+            </button>
+            <button
+              onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+              className={`p-2 rounded-md ${isMobileMenuOpen ? 'bg-indigo-600 text-white' : 'hover:bg-gray-700'}`}
+              title="Open Menu"
+            >
+              <FaBars />
+            </button>
           </div>
         </header>
 
-        <div className="flex flex-1 pt-16">
-          <LeftPanel activeTab={leftSidebarTab} setActiveTab={setLeftSidebarTab} />
-          <EditorCanvas screenSize={screenSize}/>
-          <RightPanel activePanel={activePanel} setActivePanel={setActivePanel} selectedElement={selectedElement} screenSize={screenSize} setScreenSize={setScreenSize} />
+        {isMobileMenuOpen && (
+          <div className="fixed top-16 right-2 z-[60] w-64 bg-gray-900 border border-gray-700 rounded-lg shadow-xl p-4 flex flex-col gap-4 md:hidden">
+            {renderScreenSizeButtons()}
+            <hr className="border-gray-700" />
+            {renderActionButtons(true)}
+          </div>
+        )}
+
+        <div className="flex flex-1 pt-16 h-full">
+          <div className="hidden md:flex flex-1 h-full">
+            <LeftPanel
+              activeTab={leftSidebarTab}
+              setActiveTab={setLeftSidebarTab}
+            />
+            <EditorCanvas screenSize={screenSize} />
+            <RightPanel
+              activePanel={activePanel}
+              setActivePanel={setActivePanel}
+              selectedElement={selectedElement}
+              screenSize={screenSize}
+              setScreenSize={setScreenSize}
+            />
+          </div>
+
+          <div className="flex md:hidden flex-1 h-full">
+            <EditorCanvas screenSize={screenSize} />
+          </div>
         </div>
+
+        {isLeftPanelOpenMobile && (
+          <div className="fixed top-16 left-0 right-0 h-1/2 z-40 bg-gray-800 border-b border-gray-700 shadow-lg md:hidden flex flex-col">
+            <button
+              onClick={() => setIsLeftPanelOpenMobile(false)}
+              className="absolute top-2 right-2 p-2 text-gray-400 hover:text-white z-50"
+              title="Close Panel"
+            >
+              <FaTimes />
+            </button>
+            <LeftPanel
+              activeTab={leftSidebarTab}
+              setActiveTab={setLeftSidebarTab}
+            />
+          </div>
+        )}
+
+        {isRightPanelOpenMobile && (
+          <div className="fixed bottom-0 left-0 right-0 h-1/2 z-40 bg-gray-800 border-t border-gray-700 shadow-lg md:hidden flex flex-col">
+            <button
+              onClick={() => setIsRightPanelOpenMobile(false)}
+              className="absolute top-2 right-2 p-2 text-gray-400 hover:text-white z-50"
+              title="Close Panel"
+            >
+              <FaTimes />
+            </button>
+            <RightPanel
+              activePanel={activePanel}
+              setActivePanel={setActivePanel}
+              selectedElement={selectedElement}
+              screenSize={screenSize}
+              setScreenSize={setScreenSize}
+            />
+          </div>
+        )}
 
         {selectedElement && <RichTextToolbar element={selectedElement} />}
         <AILayoutGeneratorModal
@@ -1085,7 +1225,6 @@ export default function EditorPage() {
           onClose={() => setIsAiModalOpen(false)}
           onGenerate={handleAiGenerate}
         />
-        {/* ADD THIS: Render the new modal */}
         <SaveVersionModal
           isOpen={isSaveVersionModalOpen}
           onClose={() => setIsSaveVersionModalOpen(false)}
@@ -1097,116 +1236,168 @@ export default function EditorPage() {
 }
 EditorPage.displayName = 'EditorPage';
 
-interface DraggableItemProps {
-    type: ElementType;
-    icon: React.ComponentType<LucideProps>;
-    label: string;
-}
-
-const DraggableItem = ({ type, icon: Icon, label }: DraggableItemProps) => {
-  const handleDragStart = (e: React.DragEvent) => e.dataTransfer.setData('elementType', type);
+const LeftPanel = ({
+  activeTab,
+  setActiveTab,
+}: {
+  activeTab: 'elements' | 'layers' | 'templates';
+  setActiveTab: (tab: 'elements' | 'layers' | 'templates') => void;
+}) => {
+  const { state } = useEditorContext();
+  const elementGroups: { title: string; items: DraggableItemProps[] }[] = [
+    {
+      title: 'Layout',
+      items: [
+        { type: 'section', icon: Rows, label: 'Section' },
+        { type: 'columns', icon: Columns, label: 'Columns' },
+        { type: 'box', icon: Square, label: 'Box' },
+        { type: 'accordion', icon: ChevronsUpDown, label: 'Accordion' },
+        {
+          type: 'horizontal-scroll',
+          icon: GalleryThumbnails,
+          label: 'Scroll Section',
+        },
+        {
+          type: 'auto-scroll',
+          icon: SlidersHorizontal,
+          label: 'Auto Scroll',
+        },
+        {
+          type: 'single-auto-scroll',
+          icon: Replace,
+          label: 'Single Scroll',
+        },
+        {
+          type: 'image-carousel',
+          icon: GalleryVerticalEnd,
+          label: 'Image Carousel',
+        },
+        { type: 'hero-slider', icon: Presentation, label: 'Hero Slider' },
+      ],
+    },
+    {
+      title: 'Split Sections',
+      items: [
+        {
+          type: 'right-image-section',
+          icon: LayoutPanelLeft,
+          label: 'Image Right',
+        },
+        {
+          type: 'left-image-section',
+          icon: PanelRight,
+          label: 'Image Left',
+        },
+        {
+          type: 'video-right-section',
+          icon: LayoutPanelLeft,
+          label: 'Video Right',
+        },
+        {
+          type: 'video-left-section',
+          icon: PanelRight,
+          label: 'Video Left',
+        },
+      ],
+    },
+    {
+      title: 'Content',
+      items: [
+        { type: 'heading', icon: Type, label: 'Heading' },
+        { type: 'paragraph', icon: ListIcon, label: 'Paragraph' },
+        { type: 'button', icon: LinkIcon, label: 'Button' },
+        { type: 'divider', icon: Minus, label: 'Divider' },
+        { type: 'ordered-list', icon: ListOrdered, label: 'Ordered List' },
+        { type: 'unordered-list', icon: ListIcon, label: 'Unordered List' },
+      ],
+    },
+    {
+      title: 'Media',
+      items: [
+        { type: 'image', icon: ImageIcon, label: 'Image' },
+        { type: 'video', icon: Video, label: 'Video' },
+        { type: 'gallery', icon: GalleryHorizontal, label: 'Gallery' },
+      ],
+    },
+    {
+      title: 'Presets',
+      items: [
+        { type: 'hero', icon: Captions, label: 'Hero Section' },
+        { type: 'navbar', icon: Menu, label: 'Navbar' },
+        { type: 'footer', icon: Footprints, label: 'Footer' },
+        { type: 'feature-grid', icon: Star, label: 'Feature Grid' },
+        { type: 'steps', icon: GitBranch, label: 'Steps' },
+        { type: 'testimonial', icon: Quote, label: 'Testimonial' },
+        { type: 'faq', icon: MessageCircleQuestion, label: 'FAQ' },
+        { type: 'contact-form', icon: MessageSquare, label: 'Contact Form' },
+      ],
+    },
+    {
+      title: 'Cards',
+      items: [
+        { type: 'card', icon: RectangleHorizontal, label: 'Card' },
+        { type: 'preview-card', icon: BookImage, label: 'Preview Card' },
+        { type: 'detail-card', icon: FileText, label: 'Detail Card' },
+        { type: 'profile-card', icon: UserSquare, label: 'Profile Card' },
+      ],
+    },
+  ];
   return (
-    <div draggable onDragStart={handleDragStart} className="flex flex-col items-center gap-2 p-2 rounded-lg bg-gray-800 border border-gray-700 cursor-grab transition-all hover:bg-gray-700 hover:border-indigo-500">
-      <Icon className="text-indigo-400" size={24} />
-      <span className="text-xs text-center">{label}</span>
-    </div>
+    <aside className="w-full md:w-64 md:flex-shrink-0 bg-gray-900 md:border-r border-gray-700 flex flex-col h-full">
+      <div className="flex border-b border-gray-700">
+        <button
+          onClick={() => setActiveTab('elements')}
+          className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm ${
+            activeTab === 'elements'
+              ? 'bg-gray-800 text-white'
+              : 'text-gray-400'
+          }`}
+        >
+          <Square size={16} /> Elements
+        </button>
+        <button
+          onClick={() => setActiveTab('layers')}
+          className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm ${
+            activeTab === 'layers'
+              ? 'bg-gray-800 text-white'
+              : 'text-gray-400'
+          }`}
+        >
+          <Layers size={16} /> Layers
+        </button>
+        <button
+          onClick={() => setActiveTab('templates')}
+          className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm ${
+            activeTab === 'templates'
+              ? 'bg-gray-800 text-white'
+              : 'text-gray-400'
+          }`}
+        >
+          <LayoutTemplate size={16} /> Assets
+        </button>
+      </div>
+      <div className="p-4 overflow-y-auto flex-1">
+        {activeTab === 'elements' && (
+          <div>
+            {elementGroups.map((group) => (
+              <div key={group.title} className="mb-4">
+                <h3 className="text-xs text-gray-500 font-bold uppercase tracking-wider mb-2">
+                  {group.title}
+                </h3>
+                <div className="grid grid-cols-3 md:grid-cols-2 gap-2">
+                  {group.items.map((el) => (
+                    <DraggableItem key={el.type} {...el} />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        {activeTab === 'layers' && <LayersPanel nodes={state.pageContent} />}
+        {activeTab === 'templates' && <TemplatesPanel />}
+      </div>
+    </aside>
   );
-};
-DraggableItem.displayName = 'DraggableItem';
-
-const LeftPanel = ({ activeTab, setActiveTab }: { activeTab: 'elements' | 'layers' | 'templates', setActiveTab: (tab: 'elements' | 'layers' | 'templates') => void }) => {
-    const { state } = useEditorContext();
-    const elementGroups: { title: string; items: DraggableItemProps[] }[] = [
-        {
-            title: 'Layout',
-            items: [
-                { type: 'section', icon: Rows, label: 'Section' },
-                { type: 'columns', icon: Columns, label: 'Columns' },
-                { type: 'box', icon: Square, label: 'Box' },
-                { type: 'accordion', icon: ChevronsUpDown, label: 'Accordion' },
-                { type: 'horizontal-scroll', icon: GalleryThumbnails, label: 'Scroll Section' },
-                { type: 'auto-scroll', icon: SlidersHorizontal, label: 'Auto Scroll' },
-                { type: 'single-auto-scroll', icon: Replace, label: 'Single Scroll' },
-                { type: 'image-carousel', icon: GalleryVerticalEnd, label: 'Image Carousel' },
-                { type: 'hero-slider', icon: Presentation, label: 'Hero Slider' },
-            ]
-        },
-        {
-            title: 'Split Sections',
-            items: [
-                { type: 'right-image-section', icon: LayoutPanelLeft, label: 'Image Right' },
-                { type: 'left-image-section', icon: PanelRight, label: 'Image Left' },
-                { type: 'video-right-section', icon: LayoutPanelLeft, label: 'Video Right' },
-                { type: 'video-left-section', icon: PanelRight, label: 'Video Left' },
-            ]
-        },
-        {
-            title: 'Content',
-            items: [
-                { type: 'heading', icon: Type, label: 'Heading' },
-                { type: 'paragraph', icon: ListIcon, label: 'Paragraph' },
-                { type: 'button', icon: LinkIcon, label: 'Button' },
-                { type: 'divider', icon: Minus, label: 'Divider' },
-                { type: 'ordered-list', icon: ListOrdered, label: 'Ordered List' },
-                { type: 'unordered-list', icon: ListIcon, label: 'Unordered List' },
-            ]
-        },
-        {
-            title: 'Media',
-            items: [
-                { type: 'image', icon: ImageIcon, label: 'Image' },
-                { type: 'video', icon: Video, label: 'Video' },
-                { type: 'gallery', icon: GalleryHorizontal, label: 'Gallery' },
-            ]
-        },
-        {
-            title: 'Presets',
-            items: [
-                { type: 'hero', icon: Captions, label: 'Hero Section' },
-                { type: 'navbar', icon: Menu, label: 'Navbar' },
-                { type: 'footer', icon: Footprints, label: 'Footer' },
-                { type: 'feature-grid', icon: Star, label: 'Feature Grid' },
-                { type: 'steps', icon: GitBranch, label: 'Steps' },
-                { type: 'testimonial', icon: Quote, label: 'Testimonial' },
-                { type: 'faq', icon: MessageCircleQuestion, label: 'FAQ' },
-                { type: 'contact-form', icon: MessageSquare, label: 'Contact Form' },
-            ]
-        },
-        {
-            title: 'Cards',
-            items: [
-                { type: 'card', icon: RectangleHorizontal, label: 'Card' },
-                { type: 'preview-card', icon: BookImage, label: 'Preview Card' },
-                { type: 'detail-card', icon: FileText, label: 'Detail Card' },
-                { type: 'profile-card', icon: UserSquare, label: 'Profile Card' },
-            ]
-        }
-    ];
-    return (
-        <aside className="w-64 flex-shrink-0 bg-gray-900 border-r border-gray-700 flex flex-col">
-            <div className="flex border-b border-gray-700">
-                <button onClick={() => setActiveTab('elements')} className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm ${activeTab === 'elements' ? 'bg-gray-800 text-white' : 'text-gray-400'}`}><Square size={16}/> Elements</button>
-                <button onClick={() => setActiveTab('layers')} className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm ${activeTab === 'layers' ? 'bg-gray-800 text-white' : 'text-gray-400'}`}><Layers size={16}/> Layers</button>
-                <button onClick={() => setActiveTab('templates')} className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm ${activeTab === 'templates' ? 'bg-gray-800 text-white' : 'text-gray-400'}`}><LayoutTemplate size={16}/> Assets</button>
-            </div>
-            <div className="p-4 overflow-y-auto">
-                {activeTab === 'elements' && (
-                    <div>
-                        {elementGroups.map(group => (
-                            <div key={group.title} className="mb-4">
-                                <h3 className="text-xs text-gray-500 font-bold uppercase tracking-wider mb-2">{group.title}</h3>
-                                <div className="grid grid-cols-2 gap-2">
-                                    {group.items.map(el => <DraggableItem key={el.type} {...el} />)}
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                )}
-                {activeTab === 'layers' && <LayersPanel nodes={state.pageContent} />}
-                {activeTab === 'templates' && <TemplatesPanel />}
-            </div>
-        </aside>
-    );
 };
 LeftPanel.displayName = 'LeftPanel';
 
@@ -1360,7 +1551,7 @@ const TemplatesPanel = () => {
 
   const DraggableImage = ({ src }: { src: string }) => {
     const handleDragStart = (e: React.DragEvent) => e.dataTransfer.setData('imageURL', src);
-    return <img src={src} draggable onDragStart={handleDragStart} className="w-full h-20 object-cover rounded-md cursor-grab border-2 border-transparent hover:border-indigo-500" alt="Draggable asset" />;
+    return <Image src={src} draggable onDragStart={handleDragStart} className="w-full h-20 object-cover rounded-md cursor-grab border-2 border-transparent hover:border-indigo-500" alt="Draggable asset" width={1000} height={1000} />;
   };
 
   return (
@@ -1388,35 +1579,6 @@ const TemplatesPanel = () => {
 };
 TemplatesPanel.displayName = 'TemplatesPanel';
 
-const GlobalCssPanel = () => {
-    const { state, dispatch } = useEditorContext();
-    const { pageStyles } = state;
-
-    const handleCssChange = (css: string) => {
-        dispatch({ type: 'SET_PAGE_STYLES', payload: { globalCss: css } });
-    };
-
-    return (
-        <div>
-            <h3 className="text-lg font-bold mb-2">Global Stylesheet</h3>
-            <p className="text-xs text-gray-400 mb-4">Add custom CSS classes here. They will be available to all elements on the page.</p>
-            <textarea
-                className="w-full h-40 bg-gray-800 text-white font-mono text-xs p-2 rounded-md border border-gray-700 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                value={pageStyles.globalCss || ''}
-                onChange={(e) => handleCssChange(e.target.value)}
-            />
-        </div>
-    )
-}
-GlobalCssPanel.displayName = 'GlobalCssPanel';
-
-const getScreenSizeClass = (screenSize: 'desktop' | 'tablet' | 'mobile') => {
-  switch (screenSize) {
-    case 'tablet': return 'w-[768px]';
-    case 'mobile': return 'w-[420px]';
-    default: return 'w-full';
-  }
-};
 
 const EditorCanvas = ({ screenSize }: { screenSize: 'desktop' | 'tablet' | 'mobile' }) => {
     const { state, dispatch } = useEditorContext();
@@ -1468,7 +1630,7 @@ const EditorCanvas = ({ screenSize }: { screenSize: 'desktop' | 'tablet' | 'mobi
     );
 
     return (
-        <main className="flex-1 overflow-auto p-8" style={{ backgroundColor: pageStyles.backgroundColor }}>
+        <main className="flex-1 overflow-auto md:p-8" style={{ backgroundColor: pageStyles.backgroundColor }}>
             <div
                 className={`mx-auto bg-white shadow-2xl transition-all duration-300 relative ${getScreenSizeClass(screenSize)}`}
                 style={{ ...pageStyles, minHeight: '100%', paddingBottom: '50vh' }}
@@ -1484,7 +1646,7 @@ const EditorCanvas = ({ screenSize }: { screenSize: 'desktop' | 'tablet' | 'mobi
 };
 EditorCanvas.displayName = 'EditorCanvas';
 
-const RenderElement = React.memo(({ element, screenSize, handleDragOver, handleDrop, dropIndicator }: { element: Element; screenSize: 'desktop' | 'tablet' | 'mobile'; handleDragOver: (e: React.DragEvent, parentId: string) => void; handleDrop: (e: React.DragEvent, parentId: string, index: number) => void; dropIndicator: { parentId: string; index: number } | null }) => {
+export const RenderElement = React.memo(({ element, screenSize, handleDragOver, handleDrop, dropIndicator }: { element: Element; screenSize: 'desktop' | 'tablet' | 'mobile'; handleDragOver: (e: React.DragEvent, parentId: string) => void; handleDrop: (e: React.DragEvent, parentId: string, index: number) => void; dropIndicator: { parentId: string; index: number } | null }) => {
     const { state, dispatch } = useEditorContext();
     const isSelected = state.selectedElementId === element.id;
     const ref = useRef<HTMLDivElement>(null);
@@ -1717,7 +1879,7 @@ const RenderElement = React.memo(({ element, screenSize, handleDragOver, handleD
                     ...combinedStyles,
                     gridTemplateColumns: `repeat(${galleryContent.columns || 3}, 1fr)`
                 };
-                return <div {...props} style={gridStyle}>{galleryContent.images.map((src: string, i: number) => <img key={i} src={src} alt={`Gallery image ${i+1}`} style={{width: '100%', height: 'auto', borderRadius: '8px'}} />)}</div>;
+                return <div {...props} style={gridStyle}>{galleryContent.images.map((src: string, i: number) => <Image key={i} src={src} alt={`Gallery image ${i+1}`} width={1000} height={1000} style={{width: '100%', height: 'auto', borderRadius: '8px'}} />)}</div>;
             }
             case 'footer': {
                 return <footer {...props} {...dropProps}>{renderChildren(element.children || [], element.id)}</footer>;
@@ -1788,7 +1950,7 @@ const RenderElement = React.memo(({ element, screenSize, handleDragOver, handleD
                 </form>
             );
             }
-            case 'image': return <img {...props} onDrop={handleDropOnElement} src={element.content} alt="" />;
+            case 'image': return <Image {...props} onDrop={handleDropOnElement} src={element.content} alt="" width={1000} height={1000} />;
             case 'button': return <button {...props}>{element.content}</button>;
             default: return <div {...props} className="p-4 bg-gray-200 text-gray-800 rounded">Invalid Element: {element.type}</div>;
         }
@@ -1807,11 +1969,9 @@ RenderElement.displayName = 'RenderElement';
 
 const ElementWrapper = ({ isSelected, children, element }: { isSelected: boolean, children: React.ReactNode, element: Element }) => {
     const { dispatch } = useEditorContext();
-    // Generate the unique class name for hover styles
     const dynamicClassName = `dynamic_element_${element.id.replace(/-/g, '_')}`;
 
     return (
-        // Add the dynamicClassName to the list of classes
         <div data-draggable="true" id={element.htmlId || undefined} className={`relative p-1 border-2 ${isSelected ? 'border-indigo-500' : 'border-transparent hover:border-indigo-500/50'} ${element.className || ''} ${dynamicClassName}`}>
             {isSelected && (
                 <div className="absolute -top-7 left-0 flex items-center gap-1 bg-indigo-600 text-white px-2 py-0.5 rounded-t-md text-xs">
@@ -1825,9 +1985,6 @@ const ElementWrapper = ({ isSelected, children, element }: { isSelected: boolean
     );
 };
 ElementWrapper.displayName = 'ElementWrapper';
-
-const DropIndicator = () => <div className="w-full h-1 my-1 bg-indigo-500 rounded-full" />;
-DropIndicator.displayName = 'DropIndicator';
 
 const RichTextToolbar = ({ element }: { element: Element | null }) => {
     if (!element || !['heading', 'paragraph', 'ordered-list', 'unordered-list'].includes(element.type)) return null;
@@ -1849,110 +2006,82 @@ const RichTextToolbar = ({ element }: { element: Element | null }) => {
 };
 RichTextToolbar.displayName = 'RichTextToolbar';
 
-const RightPanel = ({ activePanel, setActivePanel, selectedElement, screenSize, setScreenSize }: { activePanel: 'properties' | 'history' | 'versions', setActivePanel: (panel: 'properties' | 'history' | 'versions') => void, selectedElement: Element | null, screenSize: 'desktop' | 'tablet' | 'mobile', setScreenSize: (size: 'desktop' | 'tablet' | 'mobile') => void }) => {
+const RightPanel = ({
+  activePanel,
+  setActivePanel,
+  selectedElement,
+  screenSize,
+  setScreenSize,
+}: {
+  activePanel: 'properties' | 'history' | 'versions';
+  setActivePanel: (panel: 'properties' | 'history' | 'versions') => void;
+  selectedElement: Element | null;
+  screenSize: 'desktop' | 'tablet' | 'mobile';
+  setScreenSize: (size: 'desktop' | 'tablet' | 'mobile') => void;
+}) => {
   const { state } = useEditorContext();
   const params = useParams();
   const siteId = params.siteId as string;
 
   return (
-    <aside className="w-80 flex-shrink-0 bg-gray-900 p-4 border-l border-gray-700 overflow-y-auto">
-      <div className="flex mb-4 border-b border-gray-700">
-        <button onClick={() => setActivePanel('properties')} className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm ${activePanel === 'properties' ? 'text-indigo-400 border-b-2 border-indigo-400' : 'text-gray-400'}`}>
+    <aside className="w-full md:w-80 md:flex-shrink-0 bg-gray-900 md:border-l border-gray-700 flex flex-col h-full">
+      <div className="flex border-b border-gray-700 px-4">
+        <button
+          onClick={() => setActivePanel('properties')}
+          className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm ${
+            activePanel === 'properties'
+              ? 'text-indigo-400 border-b-2 border-indigo-400'
+              : 'text-gray-400'
+          }`}
+        >
           <Settings size={16} /> Properties
         </button>
-        <button onClick={() => setActivePanel('history')} className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm ${activePanel === 'history' ? 'text-indigo-400 border-b-2 border-indigo-400' : 'text-gray-400'}`}>
+        <button
+          onClick={() => setActivePanel('history')}
+          className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm ${
+            activePanel === 'history'
+              ? 'text-indigo-400 border-b-2 border-indigo-400'
+              : 'text-gray-400'
+          }`}
+        >
           <History size={16} /> Session
         </button>
-        <button onClick={() => setActivePanel('versions')} className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm ${activePanel === 'versions' ? 'text-indigo-400 border-b-2 border-indigo-400' : 'text-gray-400'}`}>
+        <button
+          onClick={() => setActivePanel('versions')}
+          className={`flex-1 flex items-center justify-center gap-2 py-2 text-sm ${
+            activePanel === 'versions'
+              ? 'text-indigo-400 border-b-2 border-indigo-400'
+              : 'text-gray-400'
+          }`}
+        >
           <Clock size={16} /> Versions
         </button>
       </div>
-      {activePanel === 'properties' && (
-        selectedElement ? <ElementPropertiesPanel key={selectedElement.id} element={selectedElement} screenSize={screenSize} setScreenSize={setScreenSize} /> : <PagePropertiesPanel pageStyles={state.pageStyles} />
-      )}
-      {activePanel === 'history' && (
-        <HistoryPanel history={state.history} historyIndex={state.historyIndex} />
-      )}
-      {activePanel === 'versions' && (
-        <VersionHistoryPanel siteId={siteId} />
-      )}
+
+      <div className="p-4 flex-1 overflow-y-auto">
+        {activePanel === 'properties' &&
+          (selectedElement ? (
+            <ElementPropertiesPanel
+              key={selectedElement.id}
+              element={selectedElement}
+              screenSize={screenSize}
+              setScreenSize={setScreenSize}
+            />
+          ) : (
+            <PagePropertiesPanel pageStyles={state.pageStyles} />
+          ))}
+        {activePanel === 'history' && (
+          <HistoryPanel
+            history={state.history}
+            historyIndex={state.historyIndex}
+          />
+        )}
+        {activePanel === 'versions' && <VersionHistoryPanel siteId={siteId} />}
+      </div>
     </aside>
   );
 };
 RightPanel.displayName = 'RightPanel';
-
-const CollapsibleGroup = ({ title, children, open = false }: { title: string, children: React.ReactNode, open?: boolean }) => {
-  const [isOpen, setIsOpen] = useState(open);
-  return (
-    <div className="rounded-md bg-gray-800 mb-2">
-      <button onClick={() => setIsOpen(!isOpen)} className="flex justify-between items-center w-full px-3 py-2 text-left text-white font-medium">
-        <span>{title}</span>
-        <ChevronDown size={20} className={`transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`} />
-      </button>
-      <div className={`overflow-hidden transition-all duration-300 ${isOpen ? 'max-h-[2000px]' : 'max-h-0'}`}>
-        <div className="p-3 border-t border-gray-700">{children}</div>
-      </div>
-    </div>
-  );
-};
-CollapsibleGroup.displayName = 'CollapsibleGroup';
-
-interface StyleInputProps {
-    label: string;
-    value: string | number;
-    onChange: (value: string) => void;
-    type?: string;
-    options?: { label: string; value: string | number }[];
-    placeholder?: string;
-}
-
-const StyleInput = ({ label, value, onChange, type = 'text', options = [], ...props }: StyleInputProps) => (
-  <div className="mb-2">
-    <label className="block text-xs text-gray-400 mb-1">{label}</label>
-    {type === 'select' ? (
-      <select value={value || ''} onChange={(e) => onChange(e.target.value)} className="w-full bg-gray-700 rounded-md px-2 py-1 text-sm text-white">
-        {options.map((opt) => <option key={opt.value.toString()} value={opt.value}>{opt.label}</option>)}
-      </select>
-    ) : (
-      <input type={type} value={value || ''} onChange={(e) => onChange(e.target.value)} className="w-full bg-gray-700 rounded-md px-2 py-1 text-sm text-white" {...props} />
-    )}
-  </div>
-);
-StyleInput.displayName = 'StyleInput';
-
-const AIContentGenerator = ({ onGenerate, promptPlaceholder }: { onGenerate: (prompt: string) => Promise<void>, promptPlaceholder: string }) => {
-    const [aiPrompt, setAiPrompt] = useState('');
-    const [isGenerating, setIsGenerating] = useState(false);
-
-    const handleGenerate = async () => {
-        if (!aiPrompt) return;
-        setIsGenerating(true);
-        await onGenerate(aiPrompt);
-        setIsGenerating(false);
-        setAiPrompt('');
-    };
-
-    return (
-        <div className="p-2 border border-dashed border-gray-600 rounded-md mt-4">
-            <h5 className="text-xs font-bold text-indigo-400 mb-2">Generate with AI</h5>
-            <textarea
-                value={aiPrompt}
-                onChange={e => setAiPrompt(e.target.value)}
-                placeholder={promptPlaceholder}
-                className="w-full bg-gray-700 rounded-md p-2 text-sm h-20 mb-2"
-            />
-            <button
-                onClick={handleGenerate}
-                disabled={isGenerating || !aiPrompt}
-                className="w-full flex items-center justify-center gap-2 bg-indigo-600 py-2 rounded-md hover:bg-indigo-500 disabled:bg-gray-600 disabled:cursor-not-allowed text-sm"
-            >
-                {isGenerating ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
-                {isGenerating ? 'Generating...' : 'Generate'}
-            </button>
-        </div>
-    );
-};
-AIContentGenerator.displayName = 'AIContentGenerator';
 
 const AddChildElementProperties = ({ element }: { element: Element }) => {
     const { dispatch } = useEditorContext();
@@ -1998,118 +2127,6 @@ const AddChildElementProperties = ({ element }: { element: Element }) => {
 };
 AddChildElementProperties.displayName = 'AddChildElementProperties';
 
-const ChildElementSelector = ({ element }: { element: Element }) => {
-    const { state, dispatch } = useEditorContext();
-    return (
-        <>
-            <h4 className="text-sm font-bold mt-4 mb-2">Child Elements</h4>
-            <div className="space-y-1 max-h-40 overflow-y-auto border border-gray-700 rounded-md p-1">
-                {element.children?.map(child => (
-                    <button 
-                        key={child.id}
-                        onClick={(e) => { e.stopPropagation(); dispatch({ type: 'SET_SELECTED_ELEMENT', payload: child.id })}}
-                        className={`w-full text-left p-2 rounded-md text-xs ${state.selectedElementId === child.id ? 'bg-indigo-600 text-white' : 'bg-gray-700 hover:bg-gray-600'}`}
-                    >
-                        {child.name || child.type}
-                    </button>
-                ))}
-                {(!element.children || element.children.length === 0) && <p className="text-xs text-gray-500 p-2">This element has no children.</p>}
-            </div>
-        </>
-    )
-};
-ChildElementSelector.displayName = 'ChildElementSelector';
-
-const AutoScrollProperties = ({ content, onContentChange }: { content: any, onContentChange: (c: any) => void }) => {
-    return (
-        <StyleInput 
-            label="Scroll Delay (ms)" 
-            type="number" 
-            value={content.delay} 
-            onChange={val => onContentChange({ ...content, delay: Number(val) })} 
-        />
-    );
-};
-AutoScrollProperties.displayName = 'AutoScrollProperties';
-
-const SingleAutoScrollProperties = ({ element, content, onContentChange }: { element: Element, content: any, onContentChange: (c: any) => void }) => {
-    return (
-        <>
-            <StyleInput 
-                label="Scroll Delay (ms)" 
-                type="number" 
-                value={content.delay} 
-                onChange={val => onContentChange({ ...content, delay: Number(val) })} 
-            />
-            <StyleInput 
-                label="Transition" 
-                type="select" 
-                value={content.transition} 
-                onChange={val => onContentChange({ ...content, transition: val })}
-                options={[
-                    { label: 'Fade', value: 'fade'},
-                    { label: 'Slide from Top', value: 'slide-top'},
-                    { label: 'Slide from Bottom', value: 'slide-bottom'},
-                    { label: 'Slide from Left', value: 'slide-left'},
-                    { label: 'Slide from Right', value: 'slide-right'},
-                ]}
-            />
-            <ChildElementSelector element={element} />
-        </>
-    );
-};
-SingleAutoScrollProperties.displayName = 'SingleAutoScrollProperties';
-
-const AccordionProperties = ({ content, onContentChange }: { content: any, onContentChange: (c: any) => void }) => {
-    return (
-        <StyleInput 
-            label="Title" 
-            value={content.title} 
-            onChange={val => onContentChange({ ...content, title: val })} 
-        />
-    );
-}
-AccordionProperties.displayName = 'AccordionProperties';
-
-const HeroProperties = ({ element, content, onContentChange }: { element: Element, content: any, onContentChange: (c: any) => void }) => {
-    return (
-        <>
-            <StyleInput 
-                label="Background Type" 
-                type="select" 
-                value={content.backgroundType} 
-                onChange={val => onContentChange({ ...content, backgroundType: val })}
-                options={[ { label: 'Image', value: 'image' }, { label: 'Video', value: 'video' } ]}
-            />
-            {content.backgroundType === 'image' ? (
-               <StyleInput label="Background Image URL" value={content.backgroundImageUrl} onChange={val => onContentChange({ ...content, backgroundImageUrl: val })} />
-            ) : (
-               <StyleInput label="Background Video URL" value={content.backgroundVideoUrl} onChange={val => onContentChange({ ...content, backgroundVideoUrl: val })} />
-            )}
-            <StyleInput 
-                label="Content Position" 
-                type="select" 
-                value={content.contentPosition} 
-                onChange={val => onContentChange({ ...content, contentPosition: val })}
-                options={[
-                    { label: 'Center Middle', value: 'center-middle'},
-                    { label: 'Center Top', value: 'center-top'},
-                    { label: 'Bottom Left', value: 'bottom-left'},
-                    { label: 'Bottom Right', value: 'bottom-right'},
-                ]}
-            />
-             <ChildElementSelector element={element} />
-        </>
-    );
-};
-HeroProperties.displayName = 'HeroProperties';
-
-// Add this list before the FeatureBlockProperties component
-const lucideIconOptions = [
-  'Award', 'CheckCircle', 'Shield', 'Zap', 'Rocket', 'Database', 'Cloud', 'Lock', 'Settings', 'Code',
-  'Star', 'Heart', 'Users', 'Globe', 'Mail', 'MessageSquare', 'Calendar', 'Clock', 'Server', 'Layers',
-  'TrendingUp', 'CreditCard', 'FileText', 'Image', 'Video', 'Monitor', 'Phone', 'MapPin', 'ThumbsUp', 'Package'
-].sort().map(name => ({ label: name, value: name }));
 
 const ElementPropertiesPanel = ({ element, screenSize, setScreenSize }: { element: Element; screenSize: 'desktop' | 'tablet' | 'mobile', setScreenSize: (size: 'desktop' | 'tablet' | 'mobile') => void }) => {
   const { dispatch } = useEditorContext();
@@ -2559,153 +2576,8 @@ const ColumnsProperties = ({ element, content, onContentChange }: { element: Ele
     return <StyleInput label="Number of Columns" type="select" value={content.columns.length} onChange={val => handleColumnCountChange(Number(val))} options={[1,2,3,4].map(v => ({label: `${v} Column${v>1?'s':''}`, value: v}))} />
 };
 
-const DynamicStyleSheet = ({ pageStyles }: { pageStyles: PageStyles }) => {
-    const cssVars = pageStyles.globalColors?.map(c => `  --${c.name.toLowerCase()}: ${c.value};`).join('\n');
-    const fontVars = pageStyles.globalFonts?.map(f => `  --font-${f.name.toLowerCase()}: ${f.value};`).join('\n');
 
-    const css = `
-        :root {
-            ${cssVars || ''}
-            ${fontVars || ''}
-        }
-        ${pageStyles.globalCss || ''}
-    `;
-    return <style>{css}</style>;
-};
-DynamicStyleSheet.displayName = 'DynamicStyleSheet';
-
-const SaveStatusIndicator = ({ status }: { status: 'saved' | 'unsaved' | 'saving' | 'error' }) => {
-    const statusMap = {
-        saved: { text: 'All changes saved', icon: <CheckCircle2 size={14} className="text-green-400"/>, color: 'text-gray-400' },
-        unsaved: { text: 'Unsaved changes', icon: <AlertCircle size={14} className="text-yellow-400"/>, color: 'text-yellow-400' },
-        saving: { text: 'Saving...', icon: <Loader2 size={14} className="animate-spin"/>, color: 'text-gray-400' },
-        error: { text: 'Save failed', icon: <X size={14} className="text-red-400"/>, color: 'text-red-400' },
-    };
-    const currentStatus = statusMap[status];
-    return (
-        <div className={`flex items-center gap-2 text-sm pr-2 ${currentStatus.color}`}>
-            {currentStatus.icon}
-            <span>{currentStatus.text}</span>
-        </div>
-    );
-};
-SaveStatusIndicator.displayName = 'SaveStatusIndicator';
-
-const NavbarComponent = ({ element, screenSize, ...props }: { element: Element; [key: string]: any }) => {
-    const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-    const navContent = JSON.parse(element.content);
-    const styles = navContent.styles || {};
-    const ctaStyles = navContent.cta?.styles || {};
-
-    const isMobileView = screenSize === 'mobile';
-
-    const getHoverClass = (animation: string) => {
-        switch(animation) {
-            case 'grow': return 'hover:scale-110';
-            case 'shrink': return 'hover:scale-90';
-            case 'underline': return 'hover:underline';
-            default: return '';
-        }
-    };
-    
-    const linkStyle = {
-        fontSize: styles.fontSize || '16px',
-        color: styles.color || '#111827',
-    };
-
-    const ctaStyle = {
-        backgroundColor: ctaStyles.backgroundColor || '#4f46e5',
-        color: ctaStyles.color || '#ffffff',
-        borderRadius: ctaStyles.borderRadius || '8px'
-    };
-
-    const navStyles = {
-        position: navContent.position || 'static',
-        top: navContent.top || '0px',
-        zIndex: navContent.position === 'fixed' || navContent.position === 'sticky' ? 50 : undefined, // Ensure it stays on top
-        left: navContent.position === 'fixed' || navContent.position === 'sticky' ? 0 : undefined,
-        right: navContent.position === 'fixed' || navContent.position === 'sticky' ? 0 : undefined,
-        ...(props.style || {}) // Merge with existing styles from RenderElement
-    };
-    
-    return (
-        <nav {...props} style={navStyles} className={`${props.className || ''} relative`}>
-            <style>{`
-                .nav-link:hover { color: ${styles.hoverColor || '#4f46e5'} !important; }
-            `}</style>
-            <div className="flex justify-between items-center w-full">
-                {navContent.logo.type === 'image' ? (
-                    <img src={navContent.logo.src} alt={navContent.logo.alt || 'Logo'} className="h-10"/>
-                ) : (
-                    <span style={{ fontWeight: 'bold', fontSize: '1.5rem' }}>{navContent.logo.text}</span>
-                )}
-
-                {!isMobileView && (
-                    <div className="flex items-center gap-6">
-                        {navContent.links.map((link: { id: string, label: string, href: string }) => 
-                            <a 
-                                key={link.id} 
-                                href={link.href} 
-                                onClick={e => e.preventDefault()} 
-                                className={`nav-link transition-all duration-200 ${getHoverClass(styles.hoverAnimation)}`}
-                                style={linkStyle}
-                            >
-                                {link.label}
-                            </a>
-                        )}
-                        {navContent.cta.enabled && 
-                            <a 
-                                href={navContent.cta.href} 
-                                onClick={e => e.preventDefault()} 
-                                className="px-4 py-2 transition-opacity hover:opacity-90"
-                                style={ctaStyle}
-                            >
-                                {navContent.cta.label}
-                            </a>
-                        }
-                    </div>
-                )}
-                {isMobileView && (
-                    <div>
-                        <button onClick={(e) => { e.stopPropagation(); setIsMobileMenuOpen(!isMobileMenuOpen) }}>
-                            {isMobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
-                        </button>
-                    </div>
-                )}
-            </div>
-            {isMobileView && isMobileMenuOpen && (
-                <div className="absolute top-full left-0 w-full bg-white text-black mt-2 rounded-md shadow-lg p-4 z-[9999]">
-                    <div className="flex flex-col gap-4">
-                        {navContent.links.map((link: { id: string, label: string, href: string }) => 
-                            <a 
-                                key={link.id} 
-                                href={link.href} 
-                                onClick={e => e.preventDefault()}
-                                className="nav-link"
-                                style={linkStyle}
-                            >
-                                {link.label}
-                            </a>
-                        )}
-                        {navContent.cta.enabled && 
-                            <a 
-                                href={navContent.cta.href} 
-                                onClick={e => e.preventDefault()} 
-                                className="text-center px-4 py-2"
-                                style={ctaStyle}
-                            >
-                                {navContent.cta.label}
-                            </a>
-                        }
-                    </div>
-                </div>
-            )}
-        </nav>
-    )
-}
-NavbarComponent.displayName = 'NavbarComponent';
-
-const AILayoutGeneratorModal = ({
+export const AILayoutGeneratorModal = ({
   isOpen,
   onClose,
   onGenerate,
@@ -3000,1125 +2872,3 @@ const generateElementFromAI = (componentData: { type: ElementType; content: any 
   );
 };
 AILayoutGeneratorModal.displayName = 'AILayoutGeneratorModal';
-
-
-const TestimonialComponent = ({ element, props }: { element: Element; props: any }) => {
-    const content = JSON.parse(element.content);
-    return (
-        <div {...props}>
-            <img src={content.avatar} alt={content.name} className="w-20 h-20 rounded-full mx-auto mb-4" />
-            <p className="text-lg italic mb-4">"{content.quote}"</p>
-            <h4 className="font-bold">{content.name}</h4>
-            <p className="text-sm text-gray-500">{content.title}</p>
-        </div>
-    );
-};
-TestimonialComponent.displayName = 'TestimonialComponent';
-
-const FaqComponent = ({ element, props }: { element: Element; props: any }) => {
-    const content = JSON.parse(element.content);
-    const [openItem, setOpenItem] = useState<string | null>(content.items[0]?.id || null);
-
-    return (
-        <div {...props}>
-            {content.items.map((item: {id: string; question: string; answer: string, questionColor: string, answerColor: string}) => (
-                <div key={item.id} className="border-b border-gray-200 py-4">
-                    <button className="w-full flex justify-between items-center text-left" onClick={() => setOpenItem(openItem === item.id ? null : item.id)}>
-                        <h4 className="font-semibold" style={{color: item.questionColor}}>{item.question}</h4>
-                        <ChevronDown className={`transform transition-transform duration-300 ${openItem === item.id ? 'rotate-180' : ''}`} />
-                    </button>
-                    {openItem === item.id && (
-                        <p className="mt-2" style={{color: item.answerColor}}>{item.answer}</p>
-                    )}
-                </div>
-            ))}
-        </div>
-    );
-};
-FaqComponent.displayName = 'FaqComponent';
-
-const FeatureBlockComponent = ({ element, props }: { element: Element; props: any }) => {
-    const content = JSON.parse(element.content);
-    const Icon = (lucideIcons as any)[content.icon] || Star;
-    return (
-        <div {...props}>
-            <Icon className="text-indigo-500 w-10 h-10 mb-4" />
-            <h3 className="text-xl font-bold mb-2">{content.title}</h3>
-            <p className="text-gray-500">{content.text}</p>
-        </div>
-    );
-};
-FeatureBlockComponent.displayName = 'FeatureBlockComponent';
-
-const StepBlockComponent = ({ element, props, dropProps, renderChildren }: { element: Element; props: any, dropProps: any, renderChildren: any }) => {
-    return (
-        <div {...props} {...dropProps}>
-            {renderChildren(element.children || [], element.id)}
-        </div>
-    );
-};
-StepBlockComponent.displayName = 'StepBlockComponent';
-
-const StepsComponent = ({ element, props, dropProps, renderChildren }: { element: Element; props: any, dropProps: any, renderChildren: any }) => {
-    return (
-      <section {...props} {...dropProps}>
-        {renderChildren(element.children || [], element.id)}
-      </section>
-    );
-};
-StepsComponent.displayName = 'StepsComponent';
-
-const StepsProperties = ({ element }: { element: Element; }) => {
-    const { dispatch } = useEditorContext();
-    const content = JSON.parse(element.content || '{}');
-    const stepsContainer = element.children?.find(child => child.name === "Steps Container");
-
-    if (!stepsContainer) return <p className="text-xs text-red-400">Error: Steps container not found.</p>;
-
-    const handleAddStep = () => {
-        const stepBlocks = stepsContainer.children?.filter(c => c.type === 'step-block') || [];
-        const newStepNumber = stepBlocks.length + 1;
-        const newStep = createNewElement('step-block') as Element;
-        if (newStep.children?.[0]) {
-            newStep.children[0].content = `<p>${String(newStepNumber).padStart(2, '0')}</p>`;
-        }
-
-        const elementsToAdd = [
-            createNewElement('step-connector') as Element,
-            newStep
-        ];
-
-        dispatch({
-            type: 'ADD_ELEMENT',
-            payload: {
-                elements: elementsToAdd,
-                parentId: stepsContainer.id,
-                index: stepsContainer.children?.length || 0
-            }
-        });
-    };
-    
-    const handleConnectorChange = (type: string) => {
-        dispatch({
-            type: 'UPDATE_ELEMENT_CONTENT',
-            payload: { elementId: element.id, content: JSON.stringify({ connectorType: type }, null, 2) }
-        });
-
-        const stylesToApply: any = {
-            marginTop: '23px',
-            height: '2px',
-            backgroundColor: 'transparent',
-            borderTop: 'none',
-        };
-
-        if (type === 'solid') {
-            stylesToApply.backgroundColor = '#e5e7eb';
-        } else if (type === 'dashed' || type === 'dotted') {
-            stylesToApply.borderTop = `2px ${type} #e5e7eb`;
-        } else if (type === 'none') {
-            stylesToApply.height = '0px';
-            stylesToApply.marginTop = '0px';
-        }
-        
-        stepsContainer.children?.forEach(child => {
-            if (child.type === 'step-connector') {
-                dispatch({
-                    type: 'UPDATE_ELEMENT_STYLES',
-                    payload: {
-                        elementId: child.id,
-                        styles: stylesToApply,
-                        breakpoint: 'desktop',
-                        state: 'default'
-                    }
-                });
-            }
-        });
-    };
-
-    return (
-        <>
-            <StyleInput
-                label="Connector Style"
-                type="select"
-                value={content.connectorType || 'solid'}
-                onChange={handleConnectorChange}
-                options={[{ label: 'Solid Line', value: 'solid' }, { label: 'Dashed Line', value: 'dashed' }, { label: 'Dotted Line', value: 'dotted' }, { label: 'None', value: 'none' }]}
-            />
-            <div className="my-4 border-t border-gray-700"></div>
-            <button onClick={handleAddStep} className="w-full flex items-center justify-center gap-2 bg-indigo-600 py-2 rounded-md hover:bg-indigo-500 text-sm">
-                <FaPlus size={12} /> Add New Step
-            </button>
-            <p className="text-xs text-gray-400 mt-2">To edit, reorder, or delete an individual step, select it on the canvas.</p>
-        </>
-    );
-};
-StepsProperties.displayName = 'StepsProperties';
-
-
-const HorizontalScrollComponent = ({ element, props, dropProps, renderChildren }: { element: Element; props: any, dropProps: any, renderChildren: any }) => {
-    const scrollRef = useRef<HTMLDivElement>(null);
-    
-    const scroll = (direction: 'left' | 'right') => {
-      if (scrollRef.current) {
-        const scrollAmount = direction === 'left' ? -300 : 300;
-        scrollRef.current.scrollBy({ left: scrollAmount, behavior: 'smooth' });
-      }
-    };
-    
-    return (
-      <div {...props}>
-        <div ref={scrollRef} className="flex gap-4 overflow-x-auto p-4 scroll-smooth no-scrollbar">
-          {renderChildren(element.children || [], element.id)}
-        </div>
-        <button onClick={() => scroll('left')} className="absolute top-1/2 left-2 -translate-y-1/2 bg-white/80 rounded-full p-2 shadow-md hover:bg-white z-10"><ArrowLeftCircle /></button>
-        <button onClick={() => scroll('right')} className="absolute top-1/2 right-2 -translate-y-1/2 bg-white/80 rounded-full p-2 shadow-md hover:bg-white z-10"><ArrowRightCircle /></button>
-      </div>
-    );
-};
-HorizontalScrollComponent.displayName = 'HorizontalScrollComponent';
-
-const AutoScrollComponent = ({ element, props, dropProps, screenSize, handleDragOver, handleDrop, dropIndicator, selectedElementId }: { element: Element; props: any, dropProps: any, screenSize: any, handleDragOver: any, handleDrop: any, dropIndicator: any, selectedElementId: string | null; }) => {
-    const content = JSON.parse(element.content || '{}');
-    const delay = content.delay || 3000;
-    const scrollRef = useRef<HTMLDivElement>(null);
-    const [currentIndex, setCurrentIndex] = useState(0);
-    const [isHovering, setIsHovering] = useState(false);
-    const totalChildren = element.children?.length || 0;
-    
-    const childIds = useMemo(() => {
-        const getAllIds = (els: Element[]): string[] => {
-            let ids: string[] = [];
-            for (const el of els) {
-                ids.push(el.id);
-                if (el.children?.length) {
-                    ids = [...ids, ...getAllIds(el.children)];
-                }
-            }
-            return ids;
-        };
-        return getAllIds(element.children || []);
-    }, [element.children]);
-
-    const isChildSelected = selectedElementId ? childIds.includes(selectedElementId) : false;
-    const isPaused = isHovering || isChildSelected;
-
-    useEffect(() => {
-        if (isPaused || !scrollRef.current || totalChildren <= 1) return;
-
-        const interval = setInterval(() => {
-            if (scrollRef.current) {
-                const { scrollWidth, scrollLeft, clientWidth } = scrollRef.current;
-                const nextIndex = (currentIndex + 1) % totalChildren;
-                
-                if (scrollLeft + clientWidth >= scrollWidth - 1) {
-                    scrollRef.current.scrollTo({ left: 0, behavior: 'smooth' });
-                     setCurrentIndex(0);
-                } else {
-                    const childNode = scrollRef.current.children[nextIndex] as HTMLElement;
-                    if (childNode) {
-                      scrollRef.current.scrollTo({ left: childNode.offsetLeft, behavior: 'smooth' });
-                      setCurrentIndex(nextIndex);
-                    }
-                }
-            }
-        }, delay);
-        return () => clearInterval(interval);
-    }, [currentIndex, totalChildren, delay, isPaused]);
-
-    return (
-        <div {...props} onMouseEnter={() => setIsHovering(true)} onMouseLeave={() => setIsHovering(false)}>
-            <div ref={scrollRef} className="flex gap-4 overflow-x-auto p-4 scroll-smooth no-scrollbar" {...dropProps}>
-                {(element.children || []).map((child, i) => (
-                     <div key={child.id} data-draggable="true">
-                         {dropIndicator?.parentId === element.id && dropIndicator.index === i && <DropIndicator />}
-                         <RenderElement
-                             element={child}
-                             screenSize={screenSize}
-                             handleDragOver={handleDragOver}
-                             handleDrop={handleDrop}
-                             dropIndicator={dropIndicator}
-                         />
-                     </div>
-                ))}
-                {dropIndicator?.parentId === element.id && dropIndicator.index === totalChildren && <DropIndicator />}
-            </div>
-             <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-black/50 text-white text-xs px-2 py-1 rounded-full">
-                <span>{currentIndex + 1} / {totalChildren}</span>
-            </div>
-        </div>
-    );
-}
-AutoScrollComponent.displayName = 'AutoScrollComponent';
-
-const SingleAutoScrollComponent = ({ element, props, dropProps, selectedElementId }: { element: Element; props: any, dropProps: any, selectedElementId: string | null; }) => {
-    const content = JSON.parse(element.content || '{}');
-    const delay = content.delay || 3000;
-    const transition = content.transition || 'fade';
-    const [currentIndex, setCurrentIndex] = useState(0);
-    const totalChildren = element.children?.length || 0;
-    const [isHovering, setIsHovering] = useState(false);
-
-    const childIds = useMemo(() => {
-        const getAllIds = (els: Element[]): string[] => {
-            let ids: string[] = [];
-            for (const el of els) {
-                ids.push(el.id);
-                if (el.children?.length) {
-                    ids = [...ids, ...getAllIds(el.children)];
-                }
-            }
-            return ids;
-        };
-        return getAllIds(element.children || []);
-    }, [element.children]);
-
-    const isChildSelected = selectedElementId ? childIds.includes(selectedElementId) : false;
-    const isPaused = isHovering || isChildSelected;
-
-    useEffect(() => {
-        if (isPaused || totalChildren <= 1) return;
-        const interval = setInterval(() => {
-            setCurrentIndex(prevIndex => (prevIndex + 1) % totalChildren);
-        }, delay);
-        return () => clearInterval(interval);
-    }, [totalChildren, delay, isPaused]);
-
-    const getTransitionClasses = (index: number) => {
-        const isActive = index === currentIndex;
-        let base = 'transition-all duration-700 ease-in-out absolute w-full h-full flex justify-center items-center';
-        
-        if (transition === 'fade') {
-            return `${base} ${isActive ? 'opacity-100' : 'opacity-0'}`;
-        }
-        if (transition.startsWith('slide-')) {
-            let transformClass = '';
-            if (isActive) {
-                transformClass = 'transform translate-x-0 translate-y-0';
-            } else {
-                switch(transition) {
-                    case 'slide-top': transformClass = 'transform -translate-y-full'; break;
-                    case 'slide-bottom': transformClass = 'transform translate-y-full'; break;
-                    case 'slide-left': transformClass = 'transform -translate-x-full'; break;
-                    case 'slide-right': transformClass = 'transform translate-x-full'; break;
-                }
-            }
-            return `${base} ${transformClass} ${isActive ? 'opacity-100' : 'opacity-0'}`;
-        }
-        return base;
-    }
-    
-    return (
-        <div {...props} {...dropProps} onMouseEnter={() => setIsHovering(true)} onMouseLeave={() => setIsHovering(false)}>
-             {element.children.map((child, index) => (
-                 <div key={child.id} className={getTransitionClasses(index)}>
-                     <RenderElement element={child} {...{screenSize: 'desktop', handleDragOver: ()=>{}, handleDrop: ()=>{}, dropIndicator: null}} />
-                 </div>
-             ))}
-             {element.children.length === 0 && <div className="min-h-[60px] flex items-center justify-center text-xs text-gray-400 border-2 border-dashed border-gray-300 rounded-md">Drag elements here</div>}
-               <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-black/50 text-white text-xs px-2 py-1 rounded-full">
-                <span>{currentIndex + 1} / {totalChildren}</span>
-            </div>
-        </div>
-    );
-};
-SingleAutoScrollComponent.displayName = 'SingleAutoScrollComponent';
-
-const ImageCarouselComponent = ({ element, props, dropProps }: { element: Element; props: any, dropProps: any }) => {
-    const { state } = useEditorContext();
-    const content = JSON.parse(element.content || '{}');
-    const delay = content.delay || 3000;
-    const [currentIndex, setCurrentIndex] = useState(0);
-    const totalChildren = element.children?.length || 0;
-    const [isHovering, setIsHovering] = useState(false);
-
-    const childIds = useMemo(() => {
-        const getAllIds = (els: Element[]): string[] => {
-            return els.flatMap(el => [el.id, ...(el.children ? getAllIds(el.children) : [])]);
-        };
-        return getAllIds(element.children || []);
-    }, [element.children]);
-
-    const isChildSelected = state.selectedElementId ? childIds.includes(state.selectedElementId) : false;
-    const isPaused = isHovering || isChildSelected || state.selectedElementId === element.id;
-
-    useEffect(() => {
-        if (isPaused || totalChildren <= 1) return;
-
-        const interval = setInterval(() => {
-            setCurrentIndex(prevIndex => (prevIndex + 1) % totalChildren);
-        }, delay);
-
-        return () => clearInterval(interval);
-    }, [totalChildren, delay, isPaused]);
-
-    return (
-        <div {...props} {...dropProps} onMouseEnter={() => setIsHovering(true)} onMouseLeave={() => setIsHovering(false)}>
-            {element.children.map((child, index) => (
-                <div key={child.id} className={`absolute w-full h-full transition-opacity duration-1000 ease-in-out ${index === currentIndex ? 'opacity-100' : 'opacity-0'}`}>
-                    <RenderElement element={child} {...{screenSize: 'desktop', handleDragOver: ()=>{}, handleDrop: ()=>{}, dropIndicator: null}} />
-                </div>
-            ))}
-            {element.children.length === 0 && <div className="min-h-[60px] flex items-center justify-center text-xs text-gray-400 border-2 border-dashed border-gray-300 rounded-md">Drag images here</div>}
-            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2">
-                {element.children.map((_, index) => (
-                    <button
-                        key={index}
-                        onClick={() => setCurrentIndex(index)}
-                        className={`w-2 h-2 rounded-full transition-colors ${currentIndex === index ? 'bg-white' : 'bg-white/50'}`}
-                    ></button>
-                ))}
-            </div>
-        </div>
-    );
-};
-ImageCarouselComponent.displayName = 'ImageCarouselComponent';
-
-const HeroSliderComponent = ({ element, props, dropProps, selectedElementId }: { element: Element; props: any, dropProps: any, selectedElementId: string | null; }) => {
-    const { state } = useEditorContext();
-    const content = JSON.parse(element.content || '{}');
-    const delay = content.delay || 4000;
-    const [currentIndex, setCurrentIndex] = useState(0);
-    const totalChildren = element.children?.length || 0;
-    const [isHovering, setIsHovering] = useState(false);
-
-    const childIds = useMemo(() => {
-        const getAllIds = (els: Element[]): string[] => {
-            return els.flatMap(el => [el.id, ...(el.children ? getAllIds(el.children) : [])]);
-        };
-        return getAllIds(element.children || []);
-    }, [element.children]);
-
-    const isChildSelected = selectedElementId ? childIds.includes(selectedElementId) : false;
-    const isPaused = isHovering || isChildSelected || state.selectedElementId === element.id;
-
-    useEffect(() => {
-        if (isPaused || totalChildren <= 1) return;
-        const interval = setInterval(() => {
-            setCurrentIndex(prevIndex => (prevIndex + 1) % totalChildren);
-        }, delay);
-        return () => clearInterval(interval);
-    }, [totalChildren, delay, isPaused]);
-
-    return (
-        <div {...props} {...dropProps} onMouseEnter={() => setIsHovering(true)} onMouseLeave={() => setIsHovering(false)}>
-            {element.children.map((child, index) => (
-                <div key={child.id} className={`absolute w-full h-full transition-opacity duration-1000 ease-in-out ${index === currentIndex ? 'opacity-100' : 'opacity-0'}`}>
-                    <RenderElement element={child} {...{screenSize: 'desktop', handleDragOver: ()=>{}, handleDrop: ()=>{}, dropIndicator: null}} />
-                </div>
-            ))}
-             {element.children.length === 0 && <div className="min-h-[60px] flex items-center justify-center text-xs text-gray-400 border-2 border-dashed border-gray-300 rounded-md">Drag slides here</div>}
-               <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2">
-                {element.children.map((_, index) => (
-                    <button 
-                        key={index} 
-                        onClick={() => setCurrentIndex(index)}
-                        className={`w-2 h-2 rounded-full transition-colors ${currentIndex === index ? 'bg-white' : 'bg-white/50'}`}
-                    ></button>
-                ))}
-            </div>
-        </div>
-    );
-};
-HeroSliderComponent.displayName = 'HeroSliderComponent';
-
-const SliderDelayProperties = ({ content, onContentChange }: { content: any, onContentChange: (c: any) => void }) => (
-    <StyleInput
-        label="Slide Delay (ms)"
-        type="number"
-        value={content.delay}
-        onChange={val => onContentChange({ ...content, delay: Number(val) })}
-    />
-);
-SliderDelayProperties.displayName = 'SliderDelayProperties';
-
-const AccordionComponent = ({ element, props, dropProps, renderChildren }: { element: Element; props: any, dropProps: any, renderChildren: any }) => {
-    const [isOpen, setIsOpen] = useState(false);
-    const content = JSON.parse(element.content || '{}');
-    
-    return(
-        <div {...props}>
-            <button onClick={() => setIsOpen(!isOpen)} className="w-full flex justify-between items-center p-4 bg-gray-100 text-gray-800 hover:bg-gray-200">
-                <span>{content.title || 'Accordion Title'}</span>
-                <ChevronDown className={`transform transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`} />
-            </button>
-            {isOpen && (
-                <div className="p-4 bg-white" {...dropProps}>
-                    {renderChildren(element.children || [], element.id)}
-                </div>
-            )}
-        </div>
-    )
-};
-AccordionComponent.displayName = 'AccordionComponent';
-
-const HeroComponent = ({
-  element,
-  props,
-  dropProps,
-  renderChildren,
-}: {
-  element: Element
-  props: any
-  dropProps: any
-  renderChildren: any
-}) => {
-  const content = JSON.parse(element.content || '{}')
-
-  const positionClasses = {
-    'center-middle': 'justify-center items-center text-center',
-    'center-top': 'justify-center items-start text-center',
-    'bottom-left': 'justify-end items-start text-left',
-    'bottom-right': 'justify-end items-end text-right',
-  }[content.contentPosition || 'center-middle']
-
-  // Extracts the 11-character YouTube ID from watch/share/embed links
-  const getYouTubeVideoId = (url: string) => {
-    if (!url) return null
-    const regExp =
-      /^(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:watch\?v=|embed\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/
-    const match = url.match(regExp)
-    return match ? match[1] : null
-  }
-
-  const isYouTube = (url: string) =>
-    /youtube\.com|youtu\.be/.test(url ?? '')
-
-  const videoId = isYouTube(content.backgroundVideoUrl)
-    ? getYouTubeVideoId(content.backgroundVideoUrl)
-    : null
-
-  const youTubeSrc = videoId
-    ? `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&loop=1&playlist=${videoId}&controls=0`
-    : ''
-
-  return (
-    <section
-      {...props}
-      className={`${props.className || ''} relative overflow-hidden h-screen`}
-    >
-      {content.backgroundType === 'image' && content.backgroundImageUrl && (
-        <img
-          src={content.backgroundImageUrl}
-          alt="background"
-          className="absolute top-0 left-0 w-full h-full object-cover z-0"
-        />
-      )}
-
-      {content.backgroundType === 'video' && content.backgroundVideoUrl && (
-        isYouTube(content.backgroundVideoUrl) && youTubeSrc ? (
-          <iframe
-            src={youTubeSrc}
-            frameBorder="0"
-            allow="autoplay; encrypted-media"
-            allowFullScreen
-            title="Background Video"
-            className="absolute top-1/2 left-1/2 min-w-full min-h-full w-auto h-auto -translate-x-1/2 -translate-y-1/2 z-0"
-          ></iframe>
-        ) : (
-          <video
-            src={content.backgroundVideoUrl}
-            autoPlay
-            muted
-            loop
-            playsInline
-            className="absolute top-1/2 left-1/2 min-w-full min-h-full w-auto h-auto -translate-x-1/2 -translate-y-1/2 object-cover z-0"
-          />
-        )
-      )}
-
-      <div
-        className={`relative z-10 w-full h-full flex flex-col p-8 ${positionClasses}`}
-        {...dropProps}
-      >
-        {renderChildren(element.children || [], element.id)}
-      </div>
-    </section>
-  )
-}
-HeroComponent.displayName = 'HeroComponent';
-
-
-// Add these new components to your file
-
-const RightImageSection = ({ element, dropProps, renderChildren }: { element: Element; dropProps: any; renderChildren: any }) => {
-    const content = JSON.parse(element.content);
-    return (
-        <div className="w-1/2 min-h-[100px] flex flex-col justify-center" {...dropProps}>
-            {renderChildren(element.children || [], element.id)}
-        </div>
-    );
-};
-RightImageSection.displayName = 'RightImageSection';
-
-const LeftImageSection = ({ element }: { element: Element }) => {
-    const content = JSON.parse(element.content);
-    return (
-        <div className="w-1/2">
-            <img src={content.imageSrc} alt="" className="w-full h-auto object-cover rounded-lg" />
-        </div>
-    );
-};
-LeftImageSection.displayName = 'LeftImageSection';
-
-
-const RightVideoSection = ({ element }: { element: Element }) => {
-    const content = JSON.parse(element.content || '{}');
-    return (
-        <div className="w-1/2">
-            <iframe className="w-full aspect-video rounded-lg" src={content.videoUrl} title="Embedded Video" frameBorder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen></iframe>
-        </div>
-    );
-};
-RightVideoSection.displayName = 'RightVideoSection';
-
-
-const LeftVideoSection = ({ element, dropProps, renderChildren }: { element: Element; dropProps: any; renderChildren: any }) => {
-    return (
-        <div className="w-1/2 min-h-[100px]" {...dropProps}>
-            {renderChildren(element.children || [], element.id)}
-        </div>
-    );
-};
-LeftVideoSection.displayName = 'LeftVideoSection';
-
-
-const TestimonialProperties = ({ content, onContentChange }: { content: any; onContentChange: (c: any) => void }) => (
-    <>
-        <StyleInput label="Avatar URL" value={content.avatar} onChange={val => onContentChange({...content, avatar: val})} />
-        <StyleInput label="Quote" value={content.quote} onChange={val => onContentChange({...content, quote: val})} />
-        <StyleInput label="Name" value={content.name} onChange={val => onContentChange({...content, name: val})} />
-        <StyleInput label="Title" value={content.title} onChange={val => onContentChange({...content, title: val})} />
-    </>
-);
-TestimonialProperties.displayName = 'TestimonialProperties';
-
-const FeatureGridProperties = ({ element, content = {}, onContentChange }: { element: Element; content: any; onContentChange: (c: any) => void; }) => {
-    const { dispatch } = useEditorContext();
-    
-    const gridContainer = element.children?.[1];
-
-    const handleAddFeatureBlock = () => {
-        if (!gridContainer) {
-            console.error("Feature grid container not found!");
-            return;
-        }
-
-        const newElement = createNewElement('feature-block') as Element;
-        dispatch({
-            type: 'ADD_ELEMENT',
-            payload: {
-                elements: [newElement],
-                parentId: gridContainer.id,
-                index: gridContainer.children?.length || 0
-            }
-        });
-    };
-
-    const handleColumnCountChange = (count: number) => {
-        if (!gridContainer) return;
-
-        onContentChange({ ...content, columnCount: count });
-
-        dispatch({
-            type: 'UPDATE_ELEMENT_STYLES',
-            payload: {
-                elementId: gridContainer.id,
-                styles: { gridTemplateColumns: `repeat(${count}, 1fr)` },
-                breakpoint: 'desktop',
-                state: 'default'
-            }
-        });
-    };
-
-    return (
-        <div>
-            <StyleInput
-                label="Columns"
-                type="select"
-                value={content.columnCount || 3}
-                onChange={val => handleColumnCountChange(Number(val))}
-                options={[1, 2, 3, 4, 5, 6].map(v => ({ label: `${v} Column${v > 1 ? 's' : ''}`, value: v }))}
-            />
-            <div className="my-4 border-t border-gray-700"></div>
-            <button
-                onClick={handleAddFeatureBlock}
-                className="w-full flex items-center justify-center gap-2 bg-indigo-600 py-2 rounded-md hover:bg-indigo-500 text-sm"
-            >
-                <FaPlus size={12} /> Add Feature Block
-            </button>
-            <p className="text-xs text-gray-400 mt-2">Select an individual feature block in the canvas to edit its content.</p>
-        </div>
-    );
-};
-FeatureGridProperties.displayName = 'FeatureGridProperties';
-
-
-const FeatureBlockProperties = ({ content, onContentChange }: { content: any; onContentChange: (c: any) => void }) => {
-    const handleAIGenerate = async (prompt: string) => {
-        const fullPrompt = `Generate a short title and a one-sentence description for a website feature block about "${prompt}". Return ONLY a clean JSON object with "title" and "text" keys. Example: {"title": "AI-Powered Insights", "text": "Unlock powerful analytics with our intelligent dashboard."}`;
-        try {
-            const result = await generateContentWithGemini(fullPrompt);
-            const cleanedResult = result.replace(/```json/g, '').replace(/```/g, '').trim();
-            const newContent = JSON.parse(cleanedResult);
-            if (newContent.title && newContent.text) {
-                onContentChange({ ...content, title: newContent.title, text: newContent.text });
-            } else {
-                 alert("AI response was not in the expected format. Please try again.");
-            }
-        } catch (e) {
-            console.error("AI Generation Error:", e);
-            alert("Failed to generate or parse AI content.");
-        }
-    };
-
-    return (
-        <>
-            <StyleInput
-                label="Icon"
-                type="select"
-                value={content.icon}
-                onChange={val => onContentChange({ ...content, icon: val })}
-                options={lucideIconOptions}
-            />
-            <StyleInput label="Title" value={content.title} onChange={val => onContentChange({ ...content, title: val })} />
-            <StyleInput label="Text" value={content.text} onChange={val => onContentChange({ ...content, text: val })} />
-            <AIContentGenerator
-                onGenerate={handleAIGenerate}
-                promptPlaceholder="e.g., 'real-time collaboration'"
-            />
-        </>
-    );
-};
-FeatureBlockProperties.displayName = 'FeatureBlockProperties';
-
-const StepBlockProperties = ({ element }: { element: Element; }) => {
-    const { dispatch } = useEditorContext();
-
-    const handleAIGenerate = async (prompt: string) => {
-        const fullPrompt = `Generate a short title and a one-sentence description for a step in a process about "${prompt}". Return ONLY a clean JSON object with "title" and "text" keys. Example: {"title": "Create Your Account", "text": "Sign up in seconds with your email address."}`;
-        try {
-            const result = await generateContentWithGemini(fullPrompt);
-            const cleanedResult = result.replace(/```json/g, '').replace(/```/g, '').trim();
-            const newContent = JSON.parse(cleanedResult);
-
-            if (newContent.title && newContent.text && element.children && element.children.length >= 3) {
-                const titleElementId = element.children[1].id;
-                const textElementId = element.children[2].id;
-
-                dispatch({
-                    type: 'UPDATE_ELEMENT_CONTENT',
-                    payload: { elementId: titleElementId, content: `<h3>${newContent.title}</h3>` }
-                });
-                dispatch({
-                    type: 'UPDATE_ELEMENT_CONTENT',
-                    payload: { elementId: textElementId, content: `<p>${newContent.text}</p>` }
-                });
-                dispatch({ type: 'ADD_HISTORY' });
-            } else {
-                alert("AI response was not in the expected format or element children are missing.");
-            }
-        } catch (e) {
-            console.error("AI Generation Error:", e);
-            alert("Failed to generate or parse AI content.");
-        }
-    };
-
-    return (
-        <>
-            <p className="text-xs text-gray-400 mb-2">Use AI to generate content for this step, or click the individual elements on the canvas to edit them.</p>
-            <AIContentGenerator
-                onGenerate={handleAIGenerate}
-                promptPlaceholder="e.g., 'signing up for a newsletter'"
-            />
-            <ChildElementSelector element={element} />
-        </>
-    );
-};
-StepBlockProperties.displayName = 'StepBlockProperties';
-
-const FaqProperties = ({ content, onContentChange }: { content: any; onContentChange: (c: any) => void }) => {
-    const handleItemChange = (index: number, field: 'question' | 'answer' | 'questionColor' | 'answerColor', value: string) => {
-        const newItems = [...content.items];
-        (newItems[index] as any)[field] = value;
-        onContentChange({ ...content, items: newItems });
-    };
-
-    const handleAddItem = () => {
-        const newItems = [...content.items, { id: `faq-${Date.now()}`, question: 'New Question', answer: 'New answer.', questionColor: '#111827', answerColor: '#4B5563' }];
-        onContentChange({ ...content, items: newItems });
-    };
-
-    const handleRemoveItem = (index: number) => {
-        const newItems = content.items.filter((_: any, i: number) => i !== index);
-        onContentChange({ ...content, items: newItems });
-    };
-
-    return (
-        <>
-            <h4 className="text-sm font-bold mt-4 mb-2">FAQ Items</h4>
-            {content.items.map((item: { id: string, question: string, answer: string, questionColor: string, answerColor: string }, index: number) => (
-                <div key={item.id} className="mb-2 p-2 bg-gray-700 rounded-md">
-                    <StyleInput label="Question" value={item.question} onChange={val => handleItemChange(index, 'question', val)} />
-                    <StyleInput label="Question Color" type="color" value={item.questionColor} onChange={val => handleItemChange(index, 'questionColor', val)} />
-                    <StyleInput label="Answer" value={item.answer} onChange={val => handleItemChange(index, 'answer', val)} />
-                    <StyleInput label="Answer Color" type="color" value={item.answerColor} onChange={val => handleItemChange(index, 'answerColor', val)} />
-                    <button onClick={() => handleRemoveItem(index)} className="text-xs text-red-400 hover:underline mt-2">Remove Item</button>
-                </div>
-            ))}
-            <button onClick={handleAddItem} className="text-indigo-400 text-sm mt-2 flex items-center gap-1"><FaPlus size={10}/> Add FAQ Item</button>
-        </>
-    );
-};
-FaqProperties.displayName = 'FaqProperties';
-
-const ContactFormProperties = ({ content, onContentChange }: { content: any; onContentChange: (c: any) => void }) => {
-  const handleFieldChange = (index: number, field: 'label' | 'type', value: string) => {
-    const newFields = [...content.fields];
-    (newFields[index] as any)[field] = value;
-    onContentChange({ ...content, fields: newFields });
-  };
-
-  const handleAddField = () => {
-    const newFields = [...content.fields, { id: getUniqueId('form-field'), label: 'New Field', type: 'text' }];
-    onContentChange({ ...content, fields: newFields });
-  };
-
-  const handleRemoveField = (index: number) => {
-    const newFields = content.fields.filter((_: any, i: number) => i !== index);
-    onContentChange({ ...content, fields: newFields });
-  };
-
-  return (
-    <>
-      <h4 className="text-sm font-bold mt-4 mb-2">Form Fields</h4>
-      {content.fields.map((field: { id: string, label: string, type: string }, index: number) => (
-        <div
-          key={field.id}
-          className="inline-block items-center mb-2 p-2 bg-gray-700 rounded-md gap-[5px]"
-        >
-          <input
-            type="text"
-            placeholder="Label"
-            value={field.label}
-            onChange={(e) => handleFieldChange(index, 'label', e.target.value)}
-            className="flex-1 bg-gray-600 rounded px-2 py-1 mb-2"
-          />
-          
-          <select
-        value={field.type}
-        onChange={(e) => handleFieldChange(index, 'type', e.target.value)}
-        className="bg-gray-600 rounded px-2 py-1 w-[80%] mr-[10%]"
-        >
-        {/* --- Common Text-based Inputs --- */}
-        <option value="text">Text</option>
-        <option value="textarea">Text Area</option>
-        <option value="email">Email</option>
-        <option value="password">Password</option>
-        <option value="tel">Telephone</option>
-        <option value="url">URL</option>
-        <option value="search">Search</option>
-        
-        {/* --- Numeric Inputs --- */}
-        <option value="number">Number</option>
-        <option value="range">Range Slider</option>
-
-        {/* --- Date and Time Inputs --- */}
-        <option value="date">Date</option>
-        <option value="datetime-local">Date and Time</option>
-        <option value="month">Month</option>
-        <option value="week">Week</option>
-        <option value="time">Time</option>
-
-        {/* --- Selection Inputs --- */}
-        <option value="checkbox">Checkbox</option>
-        <option value="radio">Radio Button</option>
-        
-        {/* --- Other Specialized Inputs --- */}
-        <option value="file">File Upload</option>
-        <option value="color">Color Picker</option>
-        <option value="hidden">Hidden</option>
-        </select>
-          <button
-            onClick={() => handleRemoveField(index)}
-            className="p-1 hover:bg-red-500 rounded"
-          >
-            <FaTrashAlt size={12} />
-          </button>
-        </div>
-      ))}
-      <button onClick={handleAddField} className="text-indigo-400 text-sm mt-2 flex items-center gap-1"><FaPlus size={10}/> Add Field</button>
-      <h4 className="text-sm font-bold mt-4 mb-2">Button</h4>
-      <StyleInput label="Button Text" value={content.buttonText} onChange={val => onContentChange({ ...content, buttonText: val})} />
-    </>
-  )
-};
-ContactFormProperties.displayName = 'ContactFormProperties';
-
-const SplitSectionProperties = ({ element, content, onContentChange }: { element: Element, content: any, onContentChange: (c: any) => void }) => {
-    const { dispatch } = useEditorContext();
-    const isVideo = element.type.includes('video');
-
-    const handleVideoChange = (videoSettings: any) => {
-        // Update the nested 'video' object within the section's content
-        onContentChange({ ...content, video: videoSettings });
-    };
-
-    const handleAddElement = () => {
-        const newElement = createNewElement('heading') as Element;
-        dispatch({
-            type: 'ADD_ELEMENT',
-            payload: {
-                elements: [newElement],
-                parentId: element.id,
-                index: element.children?.length || 0
-            }
-        });
-    };
-
-    return (
-        <>
-            {isVideo ? (
-                 <CollapsibleGroup title="Video Settings" open>
-                    <VideoProperties
-                        content={content.video || { url: content.videoUrl }} // Fallback for old data
-                        onContentChange={handleVideoChange}
-                    />
-                </CollapsibleGroup>
-            ) : (
-                <StyleInput
-                    label="Image URL"
-                    value={content.imageSrc}
-                    onChange={val => onContentChange({ ...content, imageSrc: val })}
-                />
-            )}
-            <div className="my-4 border-t border-gray-700"></div>
-            <h4 className="text-sm font-bold mb-2">Content Area</h4>
-            <p className="text-xs text-gray-400 mb-2">Add elements to the content area using the button below.</p>
-            <button
-                onClick={handleAddElement}
-                className="w-full flex items-center justify-center gap-2 bg-indigo-600 py-2 rounded-md hover:bg-indigo-500 text-sm"
-            >
-                <FaPlus size={12} /> Add Element
-            </button>
-             <ChildElementSelector element={element} />
-        </>
-    );
-};
-SplitSectionProperties.displayName = 'SplitSectionProperties';
-
-const HeroSlideComponent = ({
-  element,
-  props,
-  dropProps,
-  renderChildren,
-}: {
-  element: Element;
-  props: any;
-  dropProps: any;
-  renderChildren: any;
-}) => {
-  const content = JSON.parse(element.content || '{}');
-
-  const getYouTubeVideoId = (url: string) => {
-    if (!url) return null;
-    const regExp = /^(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:watch\?v=|embed\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/;
-    const match = url.match(regExp);
-    return match ? match[1] : null;
-  };
-  const isYouTube = (url: string) => /youtube\.com|youtu\.be/.test(url ?? '');
-  const videoId = isYouTube(content.backgroundVideoUrl) ? getYouTubeVideoId(content.backgroundVideoUrl) : null;
-  const youTubeSrc = videoId ? `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&loop=1&playlist=${videoId}&controls=0` : '';
-
-  return (
-    <div {...props} className="relative w-full h-full overflow-hidden">
-      {content.backgroundType === 'image' && content.backgroundImageUrl && (
-        <img
-          src={content.backgroundImageUrl}
-          alt="background"
-          className="absolute top-0 left-0 w-full h-full object-cover z-0"
-        />
-      )}
-      {content.backgroundType === 'video' && content.backgroundVideoUrl && (
-        isYouTube(content.backgroundVideoUrl) && youTubeSrc ? (
-          <iframe
-            src={youTubeSrc}
-            frameBorder="0"
-            allow="autoplay; encrypted-media"
-            allowFullScreen
-            title="Background Video"
-            className="absolute top-1/2 left-1/2 min-w-full min-h-full w-auto h-auto -translate-x-1/2 -translate-y-1/2 z-0"
-          ></iframe>
-        ) : (
-          <video
-            src={content.backgroundVideoUrl}
-            autoPlay
-            muted
-            loop
-            playsInline
-            className="absolute top-1/2 left-1/2 min-w-full min-h-full w-auto h-auto -translate-x-1/2 -translate-y-1/2 object-cover z-0"
-          />
-        )
-      )}
-      <div
-        className="relative z-10 w-full h-full flex flex-col"
-        {...dropProps}
-      >
-        {renderChildren(element.children || [], element.id)}
-      </div>
-    </div>
-  );
-};
-HeroSlideComponent.displayName = 'HeroSlideComponent';
-
-const HeroSlideProperties = ({ element, content, onContentChange }: { element: Element, content: any, onContentChange: (c: any) => void }) => {
-    return (
-        <>
-            <StyleInput
-                label="Background Type"
-                type="select"
-                value={content.backgroundType}
-                onChange={val => onContentChange({ ...content, backgroundType: val })}
-                options={[ { label: 'Image', value: 'image' }, { label: 'Video', value: 'video' } ]}
-            />
-            {content.backgroundType === 'image' ? (
-                <StyleInput label="Background Image URL" value={content.backgroundImageUrl} onChange={val => onContentChange({ ...content, backgroundImageUrl: val })} />
-            ) : (
-                <StyleInput label="Background Video URL" value={content.backgroundVideoUrl} onChange={val => onContentChange({ ...content, backgroundVideoUrl: val })} />
-            )}
-            <ChildElementSelector element={element} />
-        </>
-    );
-};
-HeroSlideProperties.displayName = 'HeroSlideProperties';
-
-const VideoProperties = ({ content, onContentChange }: { content: any; onContentChange: (c: any) => void }) => {
-    const handleCheckboxChange = (key: string, checked: boolean) => {
-        onContentChange({ ...content, [key]: checked });
-    };
-
-    return (
-        <>
-            <StyleInput
-                label="Video URL"
-                value={content.url}
-                onChange={val => onContentChange({ ...content, url: val })}
-            />
-            <div className="grid grid-cols-2 gap-x-4 gap-y-2 mt-4">
-                <label className="flex items-center gap-2 text-sm cursor-pointer">
-                    <input
-                        type="checkbox"
-                        checked={content.controls}
-                        onChange={e => handleCheckboxChange('controls', e.target.checked)}
-                    />
-                    <span>Controls</span>
-                </label>
-                <label className="flex items-center gap-2 text-sm cursor-pointer">
-                    <input
-                        type="checkbox"
-                        checked={content.autoplay}
-                        onChange={e => handleCheckboxChange('autoplay', e.target.checked)}
-                    />
-                    <span>Autoplay</span>
-                </label>
-                <label className="flex items-center gap-2 text-sm cursor-pointer">
-                    <input
-                        type="checkbox"
-                        checked={content.loop}
-                        onChange={e => handleCheckboxChange('loop', e.target.checked)}
-                    />
-                    <span>Loop</span>
-                </label>
-                <label className="flex items-center gap-2 text-sm cursor-pointer">
-                    <input
-                        type="checkbox"
-                        checked={content.muted}
-                        onChange={e => handleCheckboxChange('muted', e.target.checked)}
-                    />
-                    <span>Muted</span>
-                </label>
-            </div>
-             <p className="text-xs text-gray-500 mt-3">
-                Note: Most modern browsers require a video to be <strong>muted</strong> for autoplay to work.
-            </p>
-        </>
-    );
-};
-VideoProperties.displayName = 'VideoProperties';
-
-const WrapInColumnsProperties = ({ elementId }: { elementId: string }) => {
-    const { dispatch } = useEditorContext();
-
-    const handleWrapClick = () => {
-        dispatch({ type: 'WRAP_IN_COLUMNS', payload: { elementId } });
-    };
-
-    return (
-        <button
-            onClick={handleWrapClick}
-            className="w-full flex items-center justify-center gap-2 bg-indigo-600 py-2 rounded-md hover:bg-indigo-500 text-sm"
-        >
-            <Columns size={14} /> Add Element Beside
-        </button>
-    );
-};
-WrapInColumnsProperties.displayName = 'WrapInColumnsProperties';
-
-const SaveVersionModal = ({
-    isOpen,
-    onClose,
-    onSave,
-}: {
-    isOpen: boolean;
-    onClose: () => void;
-    onSave: (versionName: string) => Promise<void>;
-}) => {
-    const [versionName, setVersionName] = useState('');
-    const [isSaving, setIsSaving] = useState(false);
-
-    if (!isOpen) return null;
-
-    const handleSaveClick = async () => {
-        if (!versionName.trim()) return;
-        setIsSaving(true);
-        await onSave(versionName);
-        setIsSaving(false);
-        setVersionName(''); // Reset for next time
-        onClose();
-    };
-
-    return (
-        <div className="fixed inset-0 z-[100] bg-black/60 flex items-center justify-center p-4">
-            <div className="bg-gray-800 rounded-lg shadow-xl p-6 w-full max-w-md text-white border border-gray-700">
-                <div className="flex justify-between items-center mb-4">
-                    <h2 className="text-xl font-bold">Save New Version</h2>
-                    <button onClick={onClose} className="p-1 rounded-full hover:bg-gray-700" disabled={isSaving}><X size={20} /></button>
-                </div>
-                <p className="text-sm text-gray-400 mb-4">
-                    Give this version a descriptive name to easily identify it later.
-                </p>
-                <input
-                    type="text"
-                    value={versionName}
-                    onChange={(e) => setVersionName(e.target.value)}
-                    placeholder={`e.g., "Pre-launch design v2"`}
-                    className="w-full bg-gray-700 rounded-md p-3 text-sm border border-gray-600 focus:ring-2 focus:ring-indigo-500 focus:outline-none"
-                    disabled={isSaving}
-                />
-                <div className="mt-6 flex justify-end gap-4">
-                    <button onClick={onClose} className="px-4 py-2 bg-gray-600 rounded-md hover:bg-gray-500 transition-colors text-sm" disabled={isSaving}>
-                        Cancel
-                    </button>
-                    <button
-                        onClick={handleSaveClick}
-                        className="px-4 py-2 bg-indigo-600 rounded-md hover:bg-indigo-500 transition-colors text-sm flex items-center gap-2 disabled:bg-indigo-800 disabled:cursor-not-allowed"
-                        disabled={isSaving || !versionName.trim()}
-                    >
-                        {isSaving ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
-                        {isSaving ? 'Saving...' : 'Save Version'}
-                    </button>
-                </div>
-            </div>
-        </div>
-    );
-};
-SaveVersionModal.displayName = 'SaveVersionModal';

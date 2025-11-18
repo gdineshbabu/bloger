@@ -55,8 +55,8 @@ export interface Element {
   content?: string;
   styles?: { [key: string]: string };
   children?: Element[];
+  name?: string;
 }
-
 export type PageContent = Element[];
 
 export interface GlobalItem {

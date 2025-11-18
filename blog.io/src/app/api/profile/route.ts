@@ -39,7 +39,7 @@ export async function GET(request: NextRequest) {
 
 /**
  * @route PATCH /api/profile
- * @desc Update the authenticated user's profile data (e.g., firstName, lastName, photoURL).
+ * @desc Update profile data OR add/remove assets.
  */
 export async function PATCH(request: NextRequest) {
     try {
@@ -65,36 +65,32 @@ export async function PATCH(request: NextRequest) {
             updatedAt: FieldValue.serverTimestamp(),
         };
 
-        if (body.firstName !== undefined) {
-            updateData.firstName = body.firstName;
-        }
-        if (body.lastName !== undefined) {
-            updateData.lastName = body.lastName;
-        }
-        if (body.photoURL !== undefined) {
-            updateData.photoURL = body.photoURL;
-        }
-        if (body.mobile !== undefined) {
-            updateData.mobile = body.mobile;
-        }
-        if (body.address !== undefined) {
-            updateData.address = body.address;
+        // Standard profile fields
+        if (body.firstName !== undefined) updateData.firstName = body.firstName;
+        if (body.lastName !== undefined) updateData.lastName = body.lastName;
+        if (body.photoURL !== undefined) updateData.photoURL = body.photoURL;
+        if (body.mobile !== undefined) updateData.mobile = body.mobile;
+        if (body.address !== undefined) updateData.address = body.address;
+        if (body.emailVerified !== undefined) updateData.emailVerified = body.emailVerified;
+        if (body.linkedin !== undefined) updateData.linkedin = body.linkedin;
+        if (body.github !== undefined) updateData.github = body.github;
+
+        // --- UPDATED ASSET LOGIC ---
+
+        // Add a new asset URL
+        if (body.newAssetUrl !== undefined) {
+            updateData.assets = FieldValue.arrayUnion(body.newAssetUrl);
         }
 
-        if (body.emailVerified !== undefined) {
-            updateData.emailVerified = body.emailVerified;
+        // **NEW: Remove an asset URL**
+        if (body.removeAssetUrl !== undefined) {
+            updateData.assets = FieldValue.arrayRemove(body.removeAssetUrl);
         }
+        
+        // --- END OF UPDATED LOGIC ---
 
-        if (body.linkedin !== undefined) {
-            updateData.linkedin = body.linkedin;
-        }
 
-        if (body.github !== undefined) {
-            updateData.github = body.github;
-        }
-
-        // Check if any fields were actually provided
-        if (Object.keys(updateData).length <= 1) {
+        if (Object.keys(updateData).length <= 1) { // Only contains updatedAt
              return NextResponse.json({ message: 'No valid fields to update' }, { status: 400 });
         }
 
@@ -103,7 +99,6 @@ export async function PATCH(request: NextRequest) {
         const updatedUserDoc = await userDocRef.get();
         const updatedUser = updatedUserDoc.data();
 
-        // Return the updated user data
         return NextResponse.json(updatedUser, { status: 200 });
 
     } catch (error) {

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyAuthToken } from "@/firebase/authToken";
-import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import { S3Client, PutObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { v4 as uuidv4 } from "uuid";
 
 const s3 = new S3Client({
@@ -55,6 +55,57 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ message: "Authentication error" }, { status: 401 });
     return NextResponse.json(
       { message: "Internal Server Error during upload", error: error.message },
+      { status: 500 }
+    );
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  if (!BUCKET_NAME) {
+    console.error("AWS_S3_BUCKET_NAME environment variable is not set.");
+    return NextResponse.json({ message: "Server configuration error" }, { status: 500 });
+  }
+
+  try {
+    const authHeader = request.headers.get("authorization");
+    const token = authHeader?.split("Bearer ")[1];
+    if (!token) return NextResponse.json({ message: "Unauthorized" }, { status: 401 });
+
+    const { uid } = await verifyAuthToken(token);
+
+    const body = await request.json();
+    const { photoURL } = body;
+    if (!photoURL) {
+      return NextResponse.json({ message: "Missing photoURL in request body" }, { status: 400 });
+    }
+
+    const url = new URL(photoURL);
+    const s3Key = url.pathname.split('/').slice(2).join('/');
+
+    if (!s3Key) {
+       return NextResponse.json({ message: "Invalid photoURL format" }, { status: 400 });
+    }
+
+    if (!s3Key.startsWith(`profilePictures/${uid}/`)) {
+      return NextResponse.json({ message: "Forbidden: You can only delete your own files" }, { status: 403 });
+    }
+
+    const deleteCommand = new DeleteObjectCommand({
+      Bucket: BUCKET_NAME,
+      Key: s3Key,
+    });
+
+    await s3.send(deleteCommand);
+
+    return NextResponse.json({ message: "File deleted successfully" }, { status: 200 });
+
+  } catch (error: any) {
+    console.error("Error deleting file:", error);
+    if (error instanceof Error && error.message.includes("token"))
+      return NextResponse.json({ message: "Authentication error" }, { status: 401 });
+    
+    return NextResponse.json(
+      { message: "Internal Server Error during deletion", error: error.message },
       { status: 500 }
     );
   }

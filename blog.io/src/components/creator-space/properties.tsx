@@ -58,9 +58,11 @@ interface SplitSectionPropertiesProps {
 }
 
 interface FormField {
+  name: string;
   id: string;
   label: string;
   type: string;
+  fieldId: string;
 }
 
 interface ContactFormContent {
@@ -472,23 +474,28 @@ export const ContactFormProperties = ({
   ) => {
     const newFields = content.fields.map((f, i) =>
       i === index ? { ...f, [field]: value } : f
-    );
-    onContentChange({ ...content, fields: newFields });
-  };
+    )
+    onContentChange({ ...content, fields: newFields })
+  }
 
   const handleAddField = () => {
+    const uid = getUniqueId("form-field")
+
     const newField: FormField = {
-      id: getUniqueId("form-field"),
+      id: uid,
       label: "New Field",
       type: "text",
-    };
-    onContentChange({ ...content, fields: [...content.fields, newField] });
-  };
+      name: uid,
+      fieldId: uid,
+    }
+
+    onContentChange({ ...content, fields: [...content.fields, newField] })
+  }
 
   const handleRemoveField = (index: number) => {
-    const newFields = content.fields.filter((_, i) => i !== index);
-    onContentChange({ ...content, fields: newFields });
-  };
+    const newFields = content.fields.filter((_, i) => i !== index)
+    onContentChange({ ...content, fields: newFields })
+  }
 
   return (
     <>
@@ -497,24 +504,21 @@ export const ContactFormProperties = ({
       {content.fields.map((field, index) => (
         <div
           key={field.id}
-          className="flex flex-col sm:flex-row items-center mb-2 p-2 bg-gray-700 rounded-md gap-2"
+          className="flex flex-col gap-2 mb-4 p-3 bg-gray-700 rounded-md"
         >
           <input
             type="text"
             placeholder="Label"
             value={field.label}
-            onChange={(e) =>
-              handleFieldChange(index, "label", e.target.value)
-            }
-            className="flex-1 bg-gray-600 rounded px-2 py-1 text-sm"
+            onChange={(e) => handleFieldChange(index, "label", e.target.value)}
+            className="bg-gray-600 rounded px-2 py-1 text-sm"
           />
 
           <select
             value={field.type}
             onChange={(e) => handleFieldChange(index, "type", e.target.value)}
-            className="bg-gray-600 rounded px-2 py-1 w-full sm:w-[60%]"
+            className="bg-gray-600 rounded px-2 py-1 text-sm"
           >
-            {/* --- Common Text-based Inputs --- */}
             <option value="text">Text</option>
             <option value="textarea">Text Area</option>
             <option value="email">Email</option>
@@ -522,31 +526,39 @@ export const ContactFormProperties = ({
             <option value="tel">Telephone</option>
             <option value="url">URL</option>
             <option value="search">Search</option>
-
-            {/* --- Numeric Inputs --- */}
             <option value="number">Number</option>
             <option value="range">Range Slider</option>
-
-            {/* --- Date and Time Inputs --- */}
             <option value="date">Date</option>
-            <option value="datetime-local">Date and Time</option>
+            <option value="datetime-local">Date & Time</option>
             <option value="month">Month</option>
             <option value="week">Week</option>
             <option value="time">Time</option>
-
-            {/* --- Selection Inputs --- */}
             <option value="checkbox">Checkbox</option>
             <option value="radio">Radio Button</option>
-
-            {/* --- Other Specialized Inputs --- */}
             <option value="file">File Upload</option>
             <option value="color">Color Picker</option>
             <option value="hidden">Hidden</option>
           </select>
 
+          <input
+            type="text"
+            placeholder="Field Name"
+            value={field.name ?? ""}
+            onChange={(e) => handleFieldChange(index, "name", e.target.value)}
+            className="bg-gray-600 rounded px-2 py-1 text-sm"
+          />
+
+          <input
+            type="text"
+            placeholder="Field ID"
+            value={field.fieldId ?? ""}
+            onChange={(e) => handleFieldChange(index, "fieldId", e.target.value)}
+            className="bg-gray-600 rounded px-2 py-1 text-sm"
+          />
+
           <button
             onClick={() => handleRemoveField(index)}
-            className="p-1 hover:bg-red-500 rounded text-white"
+            className="cursor-pointer p-1 bg-red-500 hover:bg-red-600 rounded text-white text-sm w-fit"
           >
             <FaTrashAlt size={12} />
           </button>
@@ -555,7 +567,7 @@ export const ContactFormProperties = ({
 
       <button
         onClick={handleAddField}
-        className="text-indigo-400 text-sm mt-2 flex items-center gap-1"
+        className="cursor-pointer text-indigo-400 text-sm mt-2 flex items-center gap-1"
       >
         <FaPlus size={10} /> Add Field
       </button>
@@ -565,14 +577,18 @@ export const ContactFormProperties = ({
         label="Button Text"
         value={content.buttonText}
         onChange={(val) =>
-          onContentChange({ ...content, buttonText: val })
+          onContentChange({
+            ...content,
+            buttonText: val,
+          })
         }
       />
     </>
-  );
-};
+  )
+}
 
-ContactFormProperties.displayName = "ContactFormProperties";
+ContactFormProperties.displayName = "ContactFormProperties"
+
 
 export const TestimonialProperties = ({
   content,

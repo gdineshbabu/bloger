@@ -61,3 +61,19 @@ export const SaveVersionModal = ({
     );
 };
 SaveVersionModal.displayName = 'SaveVersionModal';
+
+export const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message }: { isOpen: boolean; onClose: () => void; onConfirm: () => void; title: string; message: string }) => {
+  if (!isOpen) return null;
+  return (
+    <div className="fixed inset-0 z-[200] flex items-center justify-center backdrop-blur-sm bg-black/30">
+      <div className="bg-gray-800 p-6 rounded-lg shadow-xl max-w-md w-full border border-gray-700">
+        <h4 className="text-lg font-semibold text-white mb-2">{title}</h4>
+        <p className="text-gray-300 mb-6 text-sm">{message}</p>
+        <div className="flex justify-end gap-3">
+          <button onClick={onClose} className="px-4 py-2 rounded-md bg-gray-700 text-white hover:bg-gray-600 text-sm transition-colors">Cancel</button>
+          <button onClick={() => { onConfirm(); onClose(); }} className="px-4 py-2 rounded-md bg-indigo-600 text-white hover:bg-indigo-500 text-sm transition-colors">Confirm</button>
+        </div>
+      </div>
+    </div>
+  );
+};

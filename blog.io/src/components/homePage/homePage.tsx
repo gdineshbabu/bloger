@@ -1,5 +1,5 @@
 import React, { useState, useEffect, FC } from 'react';
-import { motion, AnimatePresence, useSpring } from 'framer-motion';
+import { motion, AnimatePresence, useSpring, Variants } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 import { getSession } from '@/actions/cookies';
 import Image from 'next/image';
@@ -176,10 +176,30 @@ const backdropVariants = {
     visible: { opacity: 1 },
 };
 
-const modalVariants = {
-    hidden: { opacity: 0, scale: 0.9, y: 20 },
-    visible: { opacity: 1, scale: 1, y: 0, transition: { type: 'spring', stiffness: 300, damping: 30 } },
-    exit: { opacity: 0, scale: 0.9, y: 20, transition: { duration: 0.2 } },
+const modalVariants: Variants = {
+    hidden: {
+        opacity: 0,
+        scale: 0.9,
+        y: 20,
+    },
+    visible: {
+        opacity: 1,
+        scale: 1,
+        y: 0,
+        transition: {
+            type: "spring",
+            stiffness: 300,
+            damping: 30,
+        },
+    },
+    exit: {
+        opacity: 0,
+        scale: 0.9,
+        y: 20,
+        transition: {
+            duration: 0.2,
+        },
+    },
 };
 
 const TemplateModal: FC<TemplateModalProps> = ({ template, onClose, isAuthenticated }) => {

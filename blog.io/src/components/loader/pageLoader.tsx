@@ -1,22 +1,26 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 'use client';
 
-import { motion } from 'framer-motion';
+import { motion, Variants } from 'framer-motion';
 
-const containerVariants = {
+export const containerVariants: Variants = {
   initial: { opacity: 1 },
   exit: { 
     opacity: 0, 
-    transition: { duration: 0.5, ease: 'easeInOut' } 
+    transition: { 
+      duration: 0.5, 
+      ease: "easeInOut" as any 
+    } 
   },
 };
 
-const logoVariants = {
+export const logoVariants: Variants = {
   animate: {
     scale: [1, 1.1, 1],
     transition: {
       duration: 1.5,
       repeat: Infinity,
-      ease: "easeInOut",
+      ease: "easeInOut" as any,
     },
   },
 };

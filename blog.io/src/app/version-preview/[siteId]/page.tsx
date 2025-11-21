@@ -1,9 +1,11 @@
 import VersionPreviewPage from '@/components/version-preview/page'
-import React from 'react'
+import React, { Suspense } from 'react'
 
 const versionPreview = () => {
   return (
-    <VersionPreviewPage />
+    <Suspense>
+      <VersionPreviewPage />
+    </Suspense>
   )
 }
 

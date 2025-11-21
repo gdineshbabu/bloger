@@ -1,10 +1,11 @@
 'use client';
 import BlogApp from "@/components/homePage/homePage";
+import { Suspense } from "react";
 
 export default function Home() {
   return (
-    <div>
+    <Suspense>
       <BlogApp />
-    </div>
+    </Suspense>
   );
 }

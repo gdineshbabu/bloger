@@ -10,11 +10,20 @@ if (!apiKey) {
 const genAI = new GoogleGenerativeAI(apiKey);
 
 const model = genAI.getGenerativeModel({
-  model: "gemini-2.5-flash", // Using 1.5-flash as it's great with large contexts
+  model: "gemini-1.5-flash", // Using 1.5-flash as it's great with large contexts
   generationConfig: {
     responseMimeType: "application/json",
   },
 });
+
+type GeminiContentPayload =
+  | string
+  | {
+      inlineData: {
+        data: string;
+        mimeType: string;
+      };
+    };
 
 // Define your stock images here
 const stockImages = [
@@ -133,7 +142,7 @@ export async function POST(req: NextRequest) {
       IMPORTANT: Do NOT include any text or markdown formatting like \`\`\`json outside of the main JSON object. The entire output must be parsable JSON.
     `;
 
-    const requestPayload: any[] = [];
+    const requestPayload: GeminiContentPayload[] = [];
     if (filePart) {
       finalPrompt += `
         \n\n**USER'S PRIMARY REQUEST:**

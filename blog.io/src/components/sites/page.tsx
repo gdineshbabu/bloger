@@ -8,7 +8,7 @@ import { Site, SiteStatus, FirestoreTimestamp, UserData } from '@/utils/types/da
 import toast, { Toaster } from 'react-hot-toast';
 
 import {
-    PlusIcon, SettingsIcon, EditIcon, EyeIcon, MoreHorizontalIcon, XIcon, StarIcon, PencilIcon, MonitorPlayIcon, Loader2Icon,
+    PlusIcon, SettingsIcon, EditIcon, EyeIcon, MoreHorizontalIcon, XIcon, StarIcon, PencilIcon, MonitorPlayIcon,
     BarChart3Icon, Trash2Icon, SearchIcon
 } from 'lucide-react';
 import { CreateSiteModal } from '../modals/modal';
@@ -205,7 +205,7 @@ const FilterControls = ({ searchQuery, setSearchQuery, filters, setFilters, sort
                     name="status"
                     value={filters.status}
                     onChange={handleFilterChange}
-                    className="cursor-pointer w-full sm:w-auto bg-gray-900 border border-gray-700 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-fuchsia-500 cursor-pointer"
+                    className="w-full sm:w-auto bg-gray-900 border border-gray-700 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-fuchsia-500 cursor-pointer"
                 >
                     <option value="all">All Statuses</option>
                     <option value="published">Published</option>
@@ -215,7 +215,7 @@ const FilterControls = ({ searchQuery, setSearchQuery, filters, setFilters, sort
                     name="isFavourite"
                     value={filters.isFavourite}
                     onChange={handleFilterChange}
-                    className="cursor-pointer w-full sm:w-auto bg-gray-900 border border-gray-700 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-fuchsia-500 cursor-pointer"
+                    className="w-full sm:w-auto bg-gray-900 border border-gray-700 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-fuchsia-500 cursor-pointer"
                 >
                     <option value="all">All Favourites</option>
                     <option value="yes">Favourites Only</option>
@@ -225,7 +225,7 @@ const FilterControls = ({ searchQuery, setSearchQuery, filters, setFilters, sort
                     name="sortBy"
                     value={sortBy}
                     onChange={(e) => setSortBy(e.target.value)}
-                    className="cursor-pointer w-full sm:w-auto bg-gray-900 border border-gray-700 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-fuchsia-500 cursor-pointer"
+                    className="w-full sm:w-auto bg-gray-900 border border-gray-700 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-fuchsia-500 cursor-pointer"
                 >
                     <option value="createdAt_desc">Newest First</option>
                     <option value="createdAt_asc">Oldest First</option>

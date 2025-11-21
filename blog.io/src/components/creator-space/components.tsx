@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { ArrowLeftCircle, ArrowRightCircle, ChevronDown, Loader2, Menu, Sparkles, Star, X } from "lucide-react";
 import { HTMLAttributes, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { useEditorContext } from "./page";
@@ -95,13 +96,16 @@ type DropIndicatorType = {
   index: number;
 } | null;
 
+type CustomDragOverHandler = (e: React.DragEvent<HTMLDivElement>, parentId: string) => void;
+type CustomDropHandler = (e: React.DragEvent<HTMLDivElement>, parentId: string, index: number) => void;
+
 type AutoScrollComponentProps = {
   element: BuilderElement;
   props?: React.HTMLAttributes<HTMLDivElement>;
   dropProps?: React.HTMLAttributes<HTMLDivElement>;
   screenSize: "desktop" | "tablet" | "mobile";
-  handleDragOver: React.DragEventHandler<HTMLDivElement>;
-  handleDrop: React.DragEventHandler<HTMLDivElement>;
+  handleDragOver: CustomDragOverHandler;
+  handleDrop: CustomDropHandler;
   dropIndicator: DropIndicatorType;
   selectedElementId: string | null;
 };
@@ -113,10 +117,18 @@ type BuilderElement = {
   children?: BuilderElement[];
 };
 
+type DropProps = {
+    onDragOver: (e: React.DragEvent<HTMLDivElement>) => void;
+    onDrop: (e: React.DragEvent<HTMLDivElement>) => void;
+    onDragEnter?: (e: React.DragEvent<HTMLDivElement>) => void;
+    onDragLeave?: (e: React.DragEvent<HTMLDivElement>) => void;
+};
+
 type HorizontalScrollComponentProps = {
   element: BuilderElement;
   props?: React.HTMLAttributes<HTMLDivElement>;
   renderChildren: (children: BuilderElement[], parentId: string) => React.ReactNode;
+  dropProps: DropProps;
 };
 
 type SingleAutoScrollProps = {
@@ -147,6 +159,7 @@ interface CommonComponentProps extends HTMLAttributes<HTMLElement> {
   element: Element;
   dropProps?: React.HTMLAttributes<HTMLElement>;
   renderChildren: (children: Element[], parentId: string) => ReactNode;
+  props?: React.HTMLAttributes<HTMLElement>;
 }
 
 export const HeroSlideComponent: React.FC<HeroSlideComponentProps> = ({
@@ -396,13 +409,6 @@ export const RightImageSection: React.FC<DroppableSectionProps> = ({
   dropProps = {},
   renderChildren,
 }) => {
-  const content: SectionContent = (() => {
-    try {
-      return element.content ? JSON.parse(element.content) : {};
-    } catch {
-      return {};
-    }
-  })();
 
   return (
     <div
@@ -588,6 +594,7 @@ export const HorizontalScrollComponent: React.FC<HorizontalScrollComponentProps>
   element,
   props = {},
   renderChildren,
+  dropProps,
 }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -602,6 +609,7 @@ export const HorizontalScrollComponent: React.FC<HorizontalScrollComponentProps>
     <div {...props} className={`relative ${props.className ?? ""}`}>
       <div
         ref={scrollRef}
+        {...dropProps}
         className="flex gap-4 overflow-x-auto p-4 scroll-smooth no-scrollbar"
       >
         {renderChildren(element.children ?? [], element.id)}
@@ -708,8 +716,8 @@ export const AutoScrollComponent: React.FC<AutoScrollComponentProps> = ({
         ref={scrollRef}
         className="flex gap-4 overflow-x-auto p-4 scroll-smooth no-scrollbar"
         {...dropProps}
-        onDragOver={handleDragOver}
-        onDrop={handleDrop}
+        onDragOver={(e) => handleDragOver(e, element.id)}
+        onDrop={(e) => handleDrop(e, element.id, element.children?.length ?? 0)}
       >
         {(element.children ?? []).map((child, i) => (
           <div key={child.id} data-draggable="true">
@@ -718,8 +726,8 @@ export const AutoScrollComponent: React.FC<AutoScrollComponentProps> = ({
             <RenderElement
               element={child}
               screenSize={screenSize}
-              handleDragOver={handleDragOver}
-              handleDrop={handleDrop}
+              handleDragOver={() => handleDragOver}
+              handleDrop={() => handleDrop}
               dropIndicator={dropIndicator}
             />
           </div>
@@ -968,7 +976,7 @@ export const TestimonialComponent: React.FC<CommonProps> = ({ element, props = {
           height={1000}
         />
       )}
-      {content.quote && <p className="text-lg italic mb-4">"{content.quote}"</p>}
+      {content.quote && <p className="text-lg italic mb-4">&quot;{content.quote}&quot;</p>}
       {content.name && <h4 className="font-bold">{content.name}</h4>}
       {content.title && <p className="text-sm text-gray-500">{content.title}</p>}
     </div>
@@ -1034,9 +1042,10 @@ export const FeatureBlockComponent: React.FC<CommonProps> = ({ element, props = 
     }
   })();
 
-  const Icon =
-    (content.icon && (lucideIcons as Record<string, React.FC>)[content.icon]) ||
-    Star;
+  // Fix: lucide icons are ForwardRefExoticComponent, not React.FC
+  const icons = lucideIcons as unknown as Record<string, React.ComponentType<any>>;
+
+  const Icon = (content.icon && icons[content.icon]) || Star;
 
   return (
     <div {...props} className={`text-center ${props.className ?? ""}`}>
@@ -1046,7 +1055,9 @@ export const FeatureBlockComponent: React.FC<CommonProps> = ({ element, props = 
     </div>
   );
 };
+
 FeatureBlockComponent.displayName = "FeatureBlockComponent";
+
 
 export const StepBlockComponent: React.FC<CommonComponentProps> = ({
   element,

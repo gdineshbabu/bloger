@@ -1,9 +1,11 @@
 import EditorPage from '@/components/creator-space/page'
-import React from 'react'
+import React, { Suspense } from 'react'
 
 const CreatorSpace = () => {
   return (
-    <EditorPage />
+    <Suspense>
+      <EditorPage />
+    </Suspense>
   )
 }
 

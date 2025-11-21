@@ -1,9 +1,12 @@
 import LivePreviewPage from '@/components/live-preview/page'
-import React from 'react'
+import React, { Suspense } from 'react'
 
 const LivePreview = () => {
   return (
-    <LivePreviewPage />
+    <Suspense>
+      <LivePreviewPage />
+    </Suspense>
+
   )
 }
 

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 'use client';
 
 import React, { useState, useEffect, ReactNode, useRef, ChangeEvent, FormEvent } from 'react';
@@ -15,6 +16,7 @@ import {
     PhoneAuthProvider,
     linkWithCredential
 } from 'firebase/auth';
+// @ts-expect-error: Suppress implicit any error for app import as source is untyped
 import { app } from '@/firebase/firebaseClient'; 
 
 import PhoneInput, { isValidPhoneNumber } from 'react-phone-number-input';
@@ -84,7 +86,9 @@ export interface FormErrorState {
     mobile: string; 
 }
 
-const auth = getAuth(app);
+// Cast app to FirebaseApp to ensure type safety in usage
+// @ts-expect-error: Suppress implicit any error for app import as source is untyped
+const auth = getAuth(app as FirebaseApp);
 
 declare global {
   interface Window {
@@ -225,7 +229,7 @@ const ProfileAvatarCard = ({ user, onEditClick, onFileChange, fileInputRef, isUp
     user: UserProfile, 
     onEditClick: () => void,
     onFileChange: (e: ChangeEvent<HTMLInputElement>) => void,
-    fileInputRef: React.RefObject<HTMLInputElement>,
+    fileInputRef: React.RefObject<HTMLInputElement | null>,
     isUploading: boolean
 }) => (
     <motion.div
@@ -743,7 +747,7 @@ export default function ProfilePage() {
             if (!window.recaptchaVerifier) {
                 window.recaptchaVerifier = new RecaptchaVerifier(auth, 'recaptcha-container', {
                     'size': 'invisible',
-                    'callback': (response: unknown) => { 
+                    'callback': () => { 
                         console.log("reCAPTCHA solved");
                     }
                 });
@@ -1039,7 +1043,7 @@ export default function ProfilePage() {
                  toast.error(error.message || 'Failed to send SMS code.');
             }
             window.recaptchaVerifier?.render().then((widgetId) => {
-                 window.grecaptcha.reset(widgetId);
+                 (window as any).grecaptcha.reset(widgetId);
             });
         } finally {
             setIsSendingSms(false);
@@ -1052,7 +1056,7 @@ export default function ProfilePage() {
 
         if (!verificationId) {
             toast.error("No verification in progress. Please send a code first.");
-            setIsVerifyingSfs(false);
+            setIsVerifyingSms(false);
             return;
         }
         

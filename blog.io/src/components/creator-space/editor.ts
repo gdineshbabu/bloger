@@ -49,20 +49,57 @@ export type ElementType =
 
 ;
 
-export interface Element {
-  id: string;
-  type: ElementType;
-  content?: string;
-  styles?: { [key: string]: string };
-  children?: Element[];
-}
-
-export type PageContent = Element[];
-
 export interface GlobalItem {
   name: string;
   value: string;
 }
+
+export type StyleState = {
+  default: Record<string, unknown>;
+  hover?: Record<string, unknown>;
+};
+
+export type BreakpointStyles = {
+  [breakpoint: string]: StyleState;
+};
+
+export interface EditorElement {
+  id: string;
+  type: string;
+  children?: EditorElement[];
+  content?: string;
+}
+
+export interface UIElements {
+  id: string;
+  type?: ElementType;
+  content?: string;
+  styles?: BreakpointStyles;
+  children?: Element[];
+  name?: string;
+}
+
+export interface Element {
+  id: string;
+  type?: ElementType;
+  content?: string;
+  styles?: BreakpointStyles;
+  children?: Element[];
+  name?: string;
+  htmlId?: string; 
+  className?: string;
+}
+
+export interface AddElementAction {
+  type: 'ADD_ELEMENT';
+  payload: {
+    elements: Element[];
+    parentId: string;
+    index: number;
+  };
+}
+
+export type PageContent = Element[];
 
 export interface PageStyles {
   fontFamily?: string;
@@ -84,4 +121,32 @@ export interface SiteData {
   createdAt?: object;
   stats?: { views: number; posts: number };
   status?: string;
+  draftContent?: Element[];
+  draftPageStyles?: PageStyles;
+}
+
+export interface EditorElement {
+  id: string;
+  type: string;
+  children?: EditorElement[];
+  content?: string;
+  styles?: BreakpointStyles;
+}
+
+export interface Links {
+    href: string;
+    text: string;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    [key: string]: any;
+}
+
+export interface Cta {
+    text: string;
+    styles?: Record<string, string>;
+}
+
+export interface MyComponentContent {
+    links: Links[];
+    styles?: Record<string, string>;
+    cta: Cta;
 }

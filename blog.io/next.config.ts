@@ -1,5 +1,3 @@
-import { hostname } from "os";
-
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true, // You might have other configs here

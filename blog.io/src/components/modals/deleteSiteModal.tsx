@@ -36,6 +36,7 @@ export const DeleteSiteModal = ({ isOpen, onClose, site, onSiteDeleted }: {
             onSiteDeleted(site.id);
             onClose();
 
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         } catch (err: any) {
             setError(err.message);
             toast.error(err.message || 'Failed to delete site.');

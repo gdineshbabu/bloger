@@ -1,9 +1,11 @@
 import SitesPage from '@/components/sites/page'
-import React from 'react'
+import React, { Suspense } from 'react'
 
 const Sites = () => {
   return (
-    <SitesPage />
+    <Suspense>
+      <SitesPage />
+    </Suspense>
   )
 }
 

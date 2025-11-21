@@ -16,6 +16,15 @@ const model = genAI.getGenerativeModel({
   },
 });
 
+type GeminiContentPayload =
+  | string
+  | {
+      inlineData: {
+        data: string;
+        mimeType: string;
+      };
+    };
+
 // Define your stock images here
 const stockImages = [
     'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=800&auto=format&fit=crop',
@@ -133,7 +142,7 @@ export async function POST(req: NextRequest) {
       IMPORTANT: Do NOT include any text or markdown formatting like \`\`\`json outside of the main JSON object. The entire output must be parsable JSON.
     `;
 
-    const requestPayload: any[] = [];
+    const requestPayload: GeminiContentPayload[] = [];
     if (filePart) {
       finalPrompt += `
         \n\n**USER'S PRIMARY REQUEST:**

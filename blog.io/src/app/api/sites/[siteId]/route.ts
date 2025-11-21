@@ -5,18 +5,17 @@ import { verifyAuthToken } from '@/firebase/authToken';
 import { NextRequest, NextResponse } from 'next/server';
 import { FieldValue } from 'firebase-admin/firestore';
 
-interface RouteParams {
-    params: {
-        siteId: string;
-    };
-}
+// In Next.js 15, params is a Promise. We define the type inline or via a helper type.
+type ParamsType = Promise<{ siteId: string }>;
 
-export async function GET(request: NextRequest, { params }: RouteParams) {
+export async function GET(request: NextRequest, { params }: { params: ParamsType }) {
+    // Await params first
+    const { siteId } = await params;
+
     try {
         const authHeader = request.headers.get('authorization');
         const token = authHeader?.split('Bearer ')[1];
-        const { siteId } = params;
-
+        
         if (!token) return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
 
         const { uid } = await verifyAuthToken(token);
@@ -30,17 +29,19 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
         return NextResponse.json({ id: siteDoc.id, ...siteData });
     } catch (error) {
-        console.error(`Error fetching site ${params.siteId}:`, error);
+        console.error(`Error fetching site ${siteId}:`, error);
         return NextResponse.json({ message: 'Internal Server Error' }, { status: 500 });
     }
 }
 
-export async function PUT(request: NextRequest, { params }: RouteParams) {
+export async function PUT(request: NextRequest, { params }: { params: ParamsType }) {
+    // Await params first
+    const { siteId } = await params;
+
     try {
         const authHeader = request.headers.get('authorization');
         const token = authHeader?.split('Bearer ')[1];
-        const { siteId } = params;
-
+        
         if (!token) return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
 
         const { uid } = await verifyAuthToken(token);
@@ -63,17 +64,19 @@ export async function PUT(request: NextRequest, { params }: RouteParams) {
 
         return NextResponse.json({ message: 'Draft updated successfully' }, { status: 200 });
     } catch (error) {
-        console.error(`Error updating site ${params.siteId}:`, error);
+        console.error(`Error updating site ${siteId}:`, error);
         return NextResponse.json({ message: 'Internal Server Error' }, { status: 500 });
     }
 }
 
-export async function PATCH(request: NextRequest, { params }: RouteParams) {
+export async function PATCH(request: NextRequest, { params }: { params: ParamsType }) {
+    // Await params first
+    const { siteId } = await params;
+
     try {
         const authHeader = request.headers.get('authorization');
         const token = authHeader?.split('Bearer ')[1];
-        const { siteId } = params;
-
+        
         if (!token) {
             return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
         }
@@ -149,12 +152,14 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     }
 }
 
-export async function DELETE(request: NextRequest, { params }: RouteParams) {
+export async function DELETE(request: NextRequest, { params }: { params: ParamsType }) {
+    // Await params first
+    const { siteId } = await params;
+
     try {
         const authHeader = request.headers.get('authorization');
         const token = authHeader?.split('Bearer ')[1];
-        const { siteId } = params;
-
+        
         if (!token) {
             return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
         }
@@ -189,7 +194,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
         return NextResponse.json({ message: 'Site deleted successfully' }, { status: 200 });
 
     } catch (error) {
-        console.error(`Error deleting site ${params.siteId}:`, error);
+        console.error(`Error deleting site ${siteId}:`, error);
         if (error instanceof Error && error.message.includes('token')) {
              return NextResponse.json({ message: 'Authentication error' }, { status: 401 });
         }

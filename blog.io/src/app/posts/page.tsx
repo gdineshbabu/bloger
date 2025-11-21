@@ -1,9 +1,12 @@
 import AllPostsPage from '@/components/posts/page'
-import React from 'react'
+import React, { Suspense } from 'react'
 
 const Posts = () => {
   return (
-    <AllPostsPage />
+    <Suspense>
+      <AllPostsPage />
+    </Suspense>
+
   )
 }
 

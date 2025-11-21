@@ -49,12 +49,24 @@ export async function POST(request: NextRequest) {
 
     const photoURL = `https://s3.${process.env.AWS_REGION}.amazonaws.com/${BUCKET_NAME}/${s3Key}`;
     return NextResponse.json({ photoURL }, { status: 200 });
-  } catch (error: any) {
+
+  } catch (error: unknown) {
     console.error("Error uploading file:", error);
-    if (error instanceof Error && error.message.includes("token"))
-      return NextResponse.json({ message: "Authentication error" }, { status: 401 });
+    
+    // Type Narrowing
+    if (error instanceof Error) {
+      if (error.message.includes("token")) {
+        return NextResponse.json({ message: "Authentication error" }, { status: 401 });
+      }
+      return NextResponse.json(
+        { message: "Internal Server Error during upload", error: error.message },
+        { status: 500 }
+      );
+    }
+
+    // Fallback for non-Error objects
     return NextResponse.json(
-      { message: "Internal Server Error during upload", error: error.message },
+      { message: "Internal Server Error during upload", error: "Unknown error occurred" },
       { status: 500 }
     );
   }
@@ -80,6 +92,7 @@ export async function DELETE(request: NextRequest) {
     }
 
     const url = new URL(photoURL);
+    // Note: Ensure this slice logic matches your S3 URL structure exactly
     const s3Key = url.pathname.split('/').slice(2).join('/');
 
     if (!s3Key) {
@@ -99,13 +112,23 @@ export async function DELETE(request: NextRequest) {
 
     return NextResponse.json({ message: "File deleted successfully" }, { status: 200 });
 
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("Error deleting file:", error);
-    if (error instanceof Error && error.message.includes("token"))
-      return NextResponse.json({ message: "Authentication error" }, { status: 401 });
+
+    // Type Narrowing
+    if (error instanceof Error) {
+      if (error.message.includes("token")) {
+         return NextResponse.json({ message: "Authentication error" }, { status: 401 });
+      }
+      return NextResponse.json(
+        { message: "Internal Server Error during deletion", error: error.message },
+        { status: 500 }
+      );
+    }
     
+    // Fallback
     return NextResponse.json(
-      { message: "Internal Server Error during deletion", error: error.message },
+      { message: "Internal Server Error during deletion", error: "Unknown error occurred" },
       { status: 500 }
     );
   }

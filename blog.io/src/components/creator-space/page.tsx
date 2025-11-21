@@ -1,6 +1,7 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 'use client';
 
-import React, { useState, useReducer, useEffect, useRef, createContext, useContext } from 'react';
+import React, { useState, useReducer, useEffect, useRef, createContext, useContext, ChangeEvent } from 'react';
 import Head from 'next/head';
 import { useParams, useRouter } from 'next/navigation';
 import { produce } from 'immer';
@@ -13,8 +14,7 @@ import {
   FaBars,
   FaTimes
 } from 'react-icons/fa';
-import { Element, ElementType, PageStyles,
-} from './editor';
+import type { AddElementAction, BreakpointStyles, Element, ElementType, Links, MyComponentContent, PageStyles } from './editor';
 import {
   Menu, X, Rows, Columns, Image as ImageIcon, Type, List as ListIcon, Video, Link as LinkIcon, Minus, Square, LayoutTemplate, UploadCloud,
   Star, Sparkles, Settings, History, RectangleHorizontal, LayoutPanelLeft, UserSquare, FileText, BookImage, Layers, MessageSquare, PanelRight, Loader2, Clock, Check, Quote, GitBranch, MessageCircleQuestion, Footprints, Captions, ListOrdered, GalleryHorizontal, GalleryThumbnails, Copy, SlidersHorizontal, Replace, ChevronsUpDown, GalleryVerticalEnd, Presentation,
@@ -29,6 +29,7 @@ import { StyleInput } from './inputs';
 import { ConfirmationModal, SaveVersionModal } from './modals';
 import Image from 'next/image';
 import toast from 'react-hot-toast';
+import Link from 'next/link';
 
 export type DraggableItemProps = {
   type: string;
@@ -110,7 +111,7 @@ const editorReducer = produce((draft: EditorState, action: EditorAction) => {
       break;
     }
     case 'ADD_ELEMENT': {
-      const { elements: elementsToAdd, parentId, index } = action.payload;
+      const { elements: elementsToAdd, parentId, index } = action.payload as unknown as AddElementAction['payload'];
       if (parentId === 'canvas') {
         draft.pageContent.splice(index, 0, ...elementsToAdd);
       } else {
@@ -240,18 +241,26 @@ const editorReducer = produce((draft: EditorState, action: EditorAction) => {
       break;
     }
     case 'UPDATE_ELEMENT_STYLES': {
-      const { elementId, styles, breakpoint, state } = action.payload;
-      findAndTraverse(draft.pageContent, (el) => {
-        if(el.id === elementId) {
-          if (!el.styles[breakpoint]) el.styles[breakpoint] = { default: {}, hover: {} };
-          if (!el.styles[breakpoint][state]) el.styles[breakpoint][state] = {};
-          el.styles[breakpoint][state] = { ...el.styles[breakpoint][state], ...styles };
-          return true;
-        }
-      });
-      addHistoryEntry();
-      break;
-    }
+      const { elementId, styles, breakpoint, state } = action.payload;
+
+      findAndTraverse(draft.pageContent, (el: Element) => {
+        if (el.id === elementId) {
+          if (!el.styles) el.styles = {};
+          if (!el.styles[breakpoint]) el.styles[breakpoint] = { default: {}, hover: {} };
+          if (!el.styles[breakpoint][state]) el.styles[breakpoint][state] = {};
+
+          el.styles[breakpoint][state] = {
+            ...el.styles[breakpoint][state],
+            ...styles,
+          };
+
+          return true;
+        }
+      });
+
+      addHistoryEntry();
+      break;
+    }
     case 'UPDATE_ELEMENT_CONTENT': {
       findAndTraverse(draft.pageContent, (el) => {
         if(el.id === action.payload.elementId) {
@@ -323,7 +332,7 @@ const editorReducer = produce((draft: EditorState, action: EditorAction) => {
             if (newElement.type === 'columns') {
                 const content = JSON.parse(newElement.content);
                 content.columns.forEach((col: { id: string, children: Element[] }) => {
-                    col.id = getUniqueId('column_internal');
+                    col.id = getUniqueId('columns');
                     col.children = col.children.map((child: Element) => deepCopyAndAssignNewIds(child));
                 });
                 newElement.content = JSON.stringify(content, null, 2);
@@ -345,7 +354,7 @@ const editorReducer = produce((draft: EditorState, action: EditorAction) => {
             if (newElement.type === 'faq') {
                 const content = JSON.parse(newElement.content);
                 content.items.forEach((item: { id: string }) => {
-                    item.id = getUniqueId('faq-item');
+                    item.id = getUniqueId('faq');
                 });
                 newElement.content = JSON.stringify(content, null, 2);
             }
@@ -420,7 +429,13 @@ const editorReducer = produce((draft: EditorState, action: EditorAction) => {
 export const createNewElement = (type: ElementType): Element | Element[] => {
     const id = getUniqueId(type);
     const defaultStyles = { desktop: { default: {}, hover: {} }, tablet: { default: {}, hover: {} }, mobile: { default: {}, hover: {} } };
-    const baseElement: Omit<Element, 'id'> & { type: ElementType } = { type, styles: JSON.parse(JSON.stringify(defaultStyles)), children: [] };
+    type BaseElement = Omit<Element, 'id'> & { type: ElementType } & { styles: BreakpointStyles };
+
+const baseElement: BaseElement = { 
+    type, 
+    styles: JSON.parse(JSON.stringify(defaultStyles)), 
+    children: [] 
+};
     
     switch(type) {
         case 'section': baseElement.styles.desktop.default = { minHeight: '100px', width: '100%', padding: '20px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px' }; break;
@@ -514,7 +529,7 @@ export const createNewElement = (type: ElementType): Element | Element[] => {
 
             const gridContainer = createNewElement('box') as Element;
             gridContainer.name = "Features Container";
-            gridContainer.styles.desktop.default = {
+            gridContainer.styles!.desktop.default = {
                 width: '100%',
                 display: 'grid',
                 gridTemplateColumns: 'repeat(3, 1fr)',
@@ -602,7 +617,7 @@ export const createNewElement = (type: ElementType): Element | Element[] => {
 
         const stepsContainer = createNewElement('box') as Element;
         stepsContainer.name = "Steps Container";
-        stepsContainer.styles.desktop.default = { width: '100%', display: 'flex', flexDirection: 'row', alignItems: 'center', justifyContent: 'center' };
+        stepsContainer.styles!.desktop.default = { width: '100%', display: 'flex', flexDirection: 'row', alignItems: 'center', justifyContent: 'center' };
         stepsContainer.children = [
             createStep(1),
             createNewElement('step-connector') as Element,
@@ -621,7 +636,7 @@ export const createNewElement = (type: ElementType): Element | Element[] => {
             baseElement.styles.desktop.default = { margin: '0 auto', width: '100%', maxWidth: '600px', backgroundColor: '#ffffff', color: '#111827', padding: '24px', borderRadius: '12px', display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', gap: '16px' };
             break;
         case 'faq':
-            baseElement.content = JSON.stringify({ items: [{id: getUniqueId('faq-item'), question: 'Is this a question?', answer: 'Yes, and this is the answer.', questionColor: '#111827', answerColor: '#4B5563'}]});
+            baseElement.content = JSON.stringify({ items: [{id: getUniqueId('faq'), question: 'Is this a question?', answer: 'Yes, and this is the answer.', questionColor: '#111827', answerColor: '#4B5563'}]});
             baseElement.styles.desktop.default = { width: '100%', maxWidth: '700px' };
             break;
         case 'preview-card':
@@ -652,7 +667,7 @@ export const createNewElement = (type: ElementType): Element | Element[] => {
 
         const profileImageElement = createNewElement('image') as Element;
         profileImageElement.content = 'https://images.unsplash.com/photo-1522252234503-e356532cafd5?q=80&w=800&auto=format&fit=crop';
-        profileImageElement.styles.desktop.default = {
+        profileImageElement.styles!.desktop.default = {
             width: '80px',
             height: '80px',
             borderRadius: '50%',
@@ -678,7 +693,7 @@ export const createNewElement = (type: ElementType): Element | Element[] => {
         break;
         case 'columns':
             baseElement.styles.desktop.default = { width: '100%', padding: '20px', display: 'flex', gap: '20px' };
-            baseElement.content = JSON.stringify({ columns: [{ id: getUniqueId('column_internal'), children: [] }, { id: getUniqueId('column_internal'), children: [] }] }, null, 2);
+            baseElement.content = JSON.stringify({ columns: [{ id: getUniqueId('columns'), children: [] }, { id: getUniqueId('columns'), children: [] }] }, null, 2);
             break;
         case 'heading': baseElement.content = '<h1>Enter Heading Text...</h1>'; baseElement.styles.desktop.default = { fontSize: '2.25rem', fontWeight: 'bold', color: 'var(--text)', width: '100%', textAlign: 'center' }; break;
         case 'paragraph': baseElement.content = '<p>Enter your paragraph text here.</p>'; baseElement.styles.desktop.default = { fontSize: '1rem', color: '#4b5563', lineHeight: 1.6, width: '100%', textAlign: 'center' }; break;
@@ -690,7 +705,7 @@ export const createNewElement = (type: ElementType): Element | Element[] => {
             baseElement.styles.desktop.default = { width: '100%', padding: '40px 20px', backgroundColor: '#111827', color: '#9ca3af', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px' };
             const footerText = createNewElement('paragraph') as Element;
             footerText.content = `<p>© ${new Date().getFullYear()} Your Company. All rights reserved.</p>`;
-            footerText.styles.desktop.default = { color: '#9ca3af', fontSize: '0.875rem' };
+            footerText.styles!.desktop.default = { color: '#9ca3af', fontSize: '0.875rem' };
             baseElement.children = [footerText];
             break;
         case 'navbar':
@@ -914,7 +929,7 @@ export default function EditorPage() {
       }
       if (el.type === 'columns') {
         try {
-          const content = JSON.parse(el.content);
+          const content = JSON.parse(el.content || '');
           for (const col of content.columns) {
             const found = findElement(col.children, elementId);
             if (found) return found;
@@ -1100,7 +1115,7 @@ export default function EditorPage() {
             href="https://fonts.gstatic.com"
             crossOrigin="anonymous"
           />
-          <link
+          <Link
             href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
             rel="stylesheet"
           />
@@ -1249,7 +1264,7 @@ const LeftPanel = ({
   activeTab,
   setActiveTab,
 }: {
-  activeTab: 'elements' | 'layers' | 'templates';
+  activeTab: 'elements' | 'layers' | 'templates' | 'css';
   setActiveTab: (tab: 'elements' | 'layers' | 'templates') => void;
 }) => {
   const { state } = useEditorContext();
@@ -1517,7 +1532,7 @@ const LayersPanel = ({ nodes, level = 0 }: { nodes: Element[], level?: number })
         <div className="text-sm">
             {nodes.map(node => {
                 const isExpanded = expandedNodes.has(node.id);
-                const hasChildren = (node.children && node.children.length > 0) || (node.type === 'columns' && JSON.parse(node.content).columns.length > 0);
+                const hasChildren = (node.children && node.children.length > 0) || (node.type === 'columns' && JSON.parse(node.content || '').columns.length > 0);
 
                 return (
                     <div key={node.id}>
@@ -1549,7 +1564,7 @@ const LayersPanel = ({ nodes, level = 0 }: { nodes: Element[], level?: number })
                         </div>
                         }
 
-                        {isExpanded && node.type === 'columns' && JSON.parse(node.content).columns.map((col: { id: string, children: Element[] }, i: number) => (
+                        {isExpanded && node.type === 'columns' && JSON.parse(node.content || '').columns.map((col: { id: string, children: Element[] }, i: number) => (
                             <div key={col.id} className='ml-8'>
                                 <div className="px-2 py-1 text-gray-400" style={{ paddingLeft: `${(level + 1) * 16 + 8}px` }}>Column {i + 1}</div>
                                 <LayersPanel nodes={col.children} level={level + 2} />
@@ -1782,7 +1797,7 @@ const TemplatesPanel = () => {
       createNewElement('preview-card') as Element,
       createNewElement('preview-card') as Element
     ];
-    (specials.children![1] as Element).styles.desktop.default.gridTemplateColumns = 'repeat(3, 1fr)';
+    (specials.children![1] as Element).styles!.desktop.default.gridTemplateColumns = 'repeat(3, 1fr)';
 
     const gallerySection = createNewElement('section') as Element;
     gallerySection.children = [
@@ -1858,21 +1873,21 @@ const TemplatesPanel = () => {
       { ...(createNewElement('unordered-list') as Element), content: `<ul>${features.map(f => `<li>${f}</li>`).join('')}</ul>`, styles: { desktop: { default: { textAlign: 'left', width: '100%', paddingLeft: '20px' }}} },
       { ...(createNewElement('button') as Element), content: 'Get Started', styles: { desktop: { default: { width: '100%', marginTop: '16px' }}} }
     ];
-    card.styles.desktop.default.alignItems = 'center';
+    card.styles!.desktop.default.alignItems = 'center';
     return card;
   };
 
   const pricingPageTemplate = (): Element[] => {
     const pricingColumns = createNewElement('columns') as Element;
-    const pricingContent = JSON.parse(pricingColumns.content);
+    const pricingContent = JSON.parse(pricingColumns.content || '');
     pricingContent.columns = [
-      { id: getUniqueId('column_internal'), children: [ createPriceCard('Basic', '$10', ['Feature 1', 'Feature 2', 'Feature 3']) ] },
-      { id: getUniqueId('column_internal'), children: [ createPriceCard('Pro', '$25', ['Feature 1', 'Feature 2', 'Feature 3', 'Feature 4']) ] },
-      { id: getUniqueId('column_internal'), children: [ createPriceCard('Enterprise', '$50', ['All Features', 'Support', 'Analytics']) ] }
+      { id: getUniqueId('columns'), children: [ createPriceCard('Basic', '$10', ['Feature 1', 'Feature 2', 'Feature 3']) ] },
+      { id: getUniqueId('columns'), children: [ createPriceCard('Pro', '$25', ['Feature 1', 'Feature 2', 'Feature 3', 'Feature 4']) ] },
+      { id: getUniqueId('columns'), children: [ createPriceCard('Enterprise', '$50', ['All Features', 'Support', 'Analytics']) ] }
     ];
     pricingColumns.content = JSON.stringify(pricingContent, null, 2);
-    pricingColumns.styles.desktop.default.alignItems = 'stretch';
-    pricingColumns.styles.desktop.default.gap = '32px';
+    pricingColumns.styles!.desktop.default.alignItems = 'stretch';
+    pricingColumns.styles!.desktop.default.gap = '32px';
 
     const pricingHeader = createNewElement('section') as Element;
     pricingHeader.children = [
@@ -1903,7 +1918,7 @@ const TemplatesPanel = () => {
 
   const blogPostTemplate = (): Element[] => {
     const hero = createNewElement('hero') as Element;
-    hero.styles.desktop.default.height = '300px';
+    hero.styles!.desktop.default.height = '300px';
     hero.content = JSON.stringify({ backgroundType: 'image', backgroundImageUrl: 'https://images.unsplash.com/photo-1488229297570-58520851e868?q=80&w=1600&auto.format&fit=crop', contentPosition: 'center-middle' });
     hero.children = [
       { ...(createNewElement('heading') as Element), content: '<h1>Blog Post Title</h1>', styles: { desktop: { default: { color: '#ffffff' }}} },
@@ -1959,8 +1974,8 @@ const TemplatesPanel = () => {
     const productDetails = createNewElement('columns') as Element;
     productDetails.content = JSON.stringify({
       columns: [
-        { id: getUniqueId('column_internal'), children: [ { ...(createNewElement('image') as Element), content: 'https://images.unsplash.com/photo-1553095066-5014bc7b7f2d?q=80&w=800&auto=format&fit=crop' } ] },
-        { id: getUniqueId('column_internal'), children: [
+        { id: getUniqueId('columns'), children: [ { ...(createNewElement('image') as Element), content: 'https://images.unsplash.com/photo-1553095066-5014bc7b7f2d?q=80&w=800&auto=format&fit=crop' } ] },
+        { id: getUniqueId('columns'), children: [
           { ...(createNewElement('heading') as Element), content: '<h2>Product Name</h2>', styles: { desktop: { default: { textAlign: 'left' }}}},
           { ...(createNewElement('heading') as Element), content: '<h3>$99.99</h3>', styles: { desktop: { default: { textAlign: 'left', color: '#4f46e5' }}}},
           { ...(createNewElement('paragraph') as Element), content: '<p>This is a great description of the product. It has many features and benefits that you will love.</p>', styles: { desktop: { default: { textAlign: 'left' }}}},
@@ -2004,7 +2019,7 @@ const TemplatesPanel = () => {
 
   const comingSoonTemplate = (): Element[] => {
     const hero = createNewElement('hero') as Element;
-    hero.styles.desktop.default.height = '80vh';
+    hero.styles!.desktop.default.height = '80vh';
     hero.children = [
       { ...(createNewElement('heading') as Element), content: '<h1>We\'re Launching Soon</h1>' },
       { ...(createNewElement('paragraph') as Element), content: '<p>Something amazing is coming. Sign up to be the first to know.</p>' }
@@ -2055,7 +2070,7 @@ const TemplatesPanel = () => {
     const speakers = createNewElement('feature-grid') as Element;
     (speakers.children![0] as Element).content = '<h2>Speakers</h2>';
     const speakersContainer = speakers.children![1] as Element;
-    speakersContainer.styles.desktop.default.gridTemplateColumns = 'repeat(3, 1fr)';
+    speakersContainer.styles!.desktop.default.gridTemplateColumns = 'repeat(3, 1fr)';
     speakersContainer.children = [
       createNewElement('profile-card') as Element,
       createNewElement('profile-card') as Element,
@@ -2426,7 +2441,7 @@ const EditorCanvas = ({ screenSize }: { screenSize: 'desktop' | 'tablet' | 'mobi
 };
 EditorCanvas.displayName = 'EditorCanvas';
 
-export const RenderElement = React.memo(({ element, screenSize, handleDragOver, handleDrop, dropIndicator }: { element: Element; screenSize: 'desktop' | 'tablet' | 'mobile'; handleDragOver: (e: React.DragEvent, parentId: string) => void; handleDrop: (e: React.DragEvent, parentId: string, index: number) => void; dropIndicator: { parentId: string; index: number } | null }) => {
+export const RenderElement = React.memo(({ element, screenSize, handleDragOver, handleDrop, dropIndicator }: { element: any; screenSize: 'desktop' | 'tablet' | 'mobile'; handleDragOver: (e: React.DragEvent, parentId: string) => void; handleDrop: (e: React.DragEvent, parentId: string, index: number) => void; dropIndicator: { parentId: string; index: number } | null }) => {
     const { state, dispatch } = useEditorContext();
     const isSelected = state.selectedElementId === element.id;
     const ref = useRef<HTMLDivElement>(null);
@@ -2767,7 +2782,7 @@ const ElementWrapper = ({ isSelected, children, element }: { isSelected: boolean
         >
             {isSelected && (
                 <div className="absolute -top-7 left-0 flex items-center gap-1 bg-indigo-600 text-white px-2 py-0.5 rounded-t-md text-xs z-[100]">
-                    <span className="capitalize">{element.name || element.type.replace(/-/g, ' ')}</span>
+                    <span className="capitalize">{element.name || element.type!.replace(/-/g, ' ')}</span>
                     <button title="Duplicate" onClick={(e) => { e.stopPropagation(); dispatch({ type: 'DUPLICATE_ELEMENT', payload: { elementId: element.id } }); }} className="p-0.5 hover:bg-indigo-500 rounded"><Copy size={10} /></button>
                     <button title="Delete" onClick={(e) => { e.stopPropagation(); dispatch({ type: 'DELETE_ELEMENT', payload: { elementId: element.id } }); }} className="p-0.5 hover:bg-indigo-500 rounded"><FaTrashAlt size={10} /></button>
                 </div>
@@ -2779,7 +2794,7 @@ const ElementWrapper = ({ isSelected, children, element }: { isSelected: boolean
 ElementWrapper.displayName = 'ElementWrapper';
 
 const RichTextToolbar = ({ element }: { element: Element | null }) => {
-    if (!element || !['heading', 'paragraph', 'ordered-list', 'unordered-list'].includes(element.type)) return null;
+    if (!element || !['heading', 'paragraph', 'ordered-list', 'unordered-list'].includes(element.type ?? '')) return null;
 
     const execCmd = (cmd: string, val?: string) => document.execCommand(cmd, false, val);
     const handleLink = () => {
@@ -2901,7 +2916,7 @@ const AddChildElementProperties = ({ element }: { element: Element }) => {
     };
 
     const getButtonLabel = () => {
-        if (['image-carousel', 'hero-slider'].includes(element.type)) return 'Add Slide';
+        if (['image-carousel', 'hero-slider'].includes(element.type ?? '')) return 'Add Slide';
         if (element.type === 'accordion') return 'Add Accordion Item';
         return 'Add Card';
     }
@@ -2947,7 +2962,7 @@ const ElementPropertiesPanel = ({ element, screenSize, setScreenSize }: { elemen
   const currentStyles = element.styles?.[screenSize]?.[styleState] || {};
 
   const renderContentInputs = () => {
-    if (['card', 'preview-card', 'detail-card', 'profile-card'].includes(element.type)) {
+    if (['card', 'preview-card', 'detail-card', 'profile-card'].includes(element.type ?? '')) {
         const handleAddChild = () => {
             const newElement = createNewElement('paragraph') as Element;
             dispatch({
@@ -2974,21 +2989,21 @@ const ElementPropertiesPanel = ({ element, screenSize, setScreenSize }: { elemen
         );
     }
 
-    if (['image', 'button'].includes(element.type)) {
-        return <StyleInput label="URL / Text" value={element.content} onChange={val => dispatch({type: 'UPDATE_ELEMENT_CONTENT', payload: {elementId: element.id, content: val}})}/>;
+    if (['image', 'button'].includes(element.type ?? '')) {
+        return <StyleInput label="URL / Text" value={element.content ?? ''} onChange={val => dispatch({type: 'UPDATE_ELEMENT_CONTENT', payload: {elementId: element.id, content: val}})}/>;
     }
 
     if (element.type === 'video') {
         try {
-            const videoContent = JSON.parse(element.content);
+            const videoContent = JSON.parse(element.content ?? '');
             return <VideoProperties content={videoContent} onContentChange={handleContentChange} />;
         } catch (e) {
             const videoContent = { url: element.content, autoplay: false, controls: true, loop: false, muted: false };
-            return <VideoProperties content={videoContent} onContentChange={handleContentChange} />;
+            return <VideoProperties content={videoContent ?? ''} onContentChange={handleContentChange} />;
         }
     }
     
-    if (['horizontal-scroll', 'image-carousel', 'hero-slider'].includes(element.type)) {
+    if (['horizontal-scroll', 'image-carousel', 'hero-slider'].includes(element.type ?? '')) {
         const content = JSON.parse(element.content || '{}');
         return (
             <>
@@ -3044,7 +3059,7 @@ const ElementPropertiesPanel = ({ element, screenSize, setScreenSize }: { elemen
                     "step-block": <StepBlockProperties element={element} />,
                     "contact-form": <ContactFormProperties content={content} onContentChange={handleContentChange} />,
                 };
-                return contentPanelMap[element.type] || null;
+                return contentPanelMap[element.type ?? 0] || null;
             }
         } catch (e) {
         }
@@ -3055,7 +3070,7 @@ const ElementPropertiesPanel = ({ element, screenSize, setScreenSize }: { elemen
 
   return (
     <div>
-      <h3 className="font-bold mb-2 capitalize">{element.name || element.type.replace(/-/g, ' ')} Properties</h3>
+      <h3 className="font-bold mb-2 capitalize">{element.name || element.type!.replace(/-/g, ' ')} Properties</h3>
 
       <div className="flex items-center gap-1 bg-gray-800 p-1 rounded-lg mb-4">
         {([ 'desktop', 'tablet', 'mobile' ] as const).map(size => (
@@ -3072,7 +3087,7 @@ const ElementPropertiesPanel = ({ element, screenSize, setScreenSize }: { elemen
         <button onClick={() => setStyleState('hover')} className={`flex-1 py-1 text-sm ${styleState === 'hover' ? 'text-indigo-400 border-b-2 border-indigo-400' : 'text-gray-400'}`}>Hover</button>
       </div>
 
-      {['heading', 'paragraph'].includes(element.type) && (
+      {['heading', 'paragraph'].includes(element.type ?? '') && (
         <CollapsibleGroup title="AI Content" open>
           <textarea value={aiPrompt} onChange={e => setAiPrompt(e.target.value)} placeholder="e.g., a catchy headline for a portfolio" className="w-full bg-gray-700 rounded-md p-2 text-sm h-20 mb-2" />
           <button onClick={handleGenerateContent} disabled={isGenerating} className="w-full flex items-center justify-center gap-2 bg-indigo-600 py-2 rounded-md hover:bg-indigo-500 disabled:bg-gray-500">
@@ -3083,7 +3098,7 @@ const ElementPropertiesPanel = ({ element, screenSize, setScreenSize }: { elemen
 
       <CollapsibleGroup title="Content" open>{renderContentInputs()}</CollapsibleGroup>
 
-        {['image', 'video', 'preview-card', 'detail-card', 'profile-card', 'card'].includes(element.type) && (
+        {['image', 'video', 'preview-card', 'detail-card', 'profile-card', 'card'].includes(element.type ?? '') && (
             <CollapsibleGroup title="Arrange" open>
                 <WrapInColumnsProperties elementId={element.id} />
                 <p className="text-xs text-gray-400 mt-2">This will wrap the current element in a new 2-column layout to add content next to it.</p>
@@ -3100,61 +3115,61 @@ const ElementPropertiesPanel = ({ element, screenSize, setScreenSize }: { elemen
           <label className="block text-xs text-gray-400">Visible</label>
           <input type="checkbox" className="toggle-checkbox" checked={currentStyles.display !== 'none'} onChange={e => handleStyleChange('display', e.target.checked ? '' : 'none')} />
         </div>
-        <StyleInput label="Display" type="select" value={currentStyles.display || ''} onChange={val => handleStyleChange('display', val)} options={['block', 'inline-block', 'flex', 'grid', 'inline', 'none'].map(v => ({label: v, value: v}))}/>
-        <StyleInput label="Position" type="select" value={currentStyles.position || ''} onChange={val => handleStyleChange('position', val)} options={['static', 'relative', 'absolute', 'fixed', 'sticky'].map(v => ({label: v, value: v}))}/>
+        <StyleInput label="Display" type="select" value={(currentStyles.display || '') as string} onChange={val => handleStyleChange('display', val)} options={['block', 'inline-block', 'flex', 'grid', 'inline', 'none'].map(v => ({label: v, value: v}))}/>
+        <StyleInput label="Position" type="select" value={(currentStyles.position || '') as string} onChange={val => handleStyleChange('position', val)} options={['static', 'relative', 'absolute', 'fixed', 'sticky'].map(v => ({label: v, value: v}))}/>
         <div className="grid grid-cols-2 gap-2">
-          <StyleInput label="Top" value={currentStyles.top || ''} onChange={val => handleStyleChange('top', val)} />
-          <StyleInput label="Right" value={currentStyles.right || ''} onChange={val => handleStyleChange('right', val)} />
-          <StyleInput label="Bottom" value={currentStyles.bottom || ''} onChange={val => handleStyleChange('bottom', val)} />
-          <StyleInput label="Left" value={currentStyles.left || ''} onChange={val => handleStyleChange('left', val)} />
+          <StyleInput label="Top" value={(currentStyles.top || '') as string} onChange={val => handleStyleChange('top', val)} />
+          <StyleInput label="Right" value={(currentStyles.right || '') as string} onChange={val => handleStyleChange('right', val)} />
+          <StyleInput label="Bottom" value={(currentStyles.bottom || '') as string} onChange={val => handleStyleChange('bottom', val)} />
+          <StyleInput label="Left" value={(currentStyles.left || '') as string} onChange={val => handleStyleChange('left', val)} />
         </div>
-        <StyleInput label="Z-Index" type="number" value={currentStyles.zIndex || ''} onChange={val => handleStyleChange('zIndex', val)} />
-        <StyleInput label="Flex Direction" value={currentStyles.flexDirection || ''} onChange={val => handleStyleChange('flexDirection', val)} />
-        <StyleInput label="Justify Content" value={currentStyles.justifyContent || ''} onChange={val => handleStyleChange('justifyContent', val)} />
-        <StyleInput label="Align Items" value={currentStyles.alignItems || ''} onChange={val => handleStyleChange('alignItems', val)} />
-        <StyleInput label="Align Self" type="select" value={currentStyles.alignSelf || ''} onChange={val => handleStyleChange('alignSelf', val)} options={['auto', 'flex-start', 'flex-end', 'center', 'stretch'].map(v => ({label:v, value:v}))}/>
-        <StyleInput label="Overflow" value={currentStyles.overflow || ''} onChange={val => handleStyleChange('overflow', val)} />
+        <StyleInput label="Z-Index" type="number" value={(currentStyles.zIndex || '') as string} onChange={val => handleStyleChange('zIndex', val)} />
+        <StyleInput label="Flex Direction" value={(currentStyles.flexDirection || '') as string} onChange={val => handleStyleChange('flexDirection', val)} />
+        <StyleInput label="Justify Content" value={(currentStyles.justifyContent || '') as string} onChange={val => handleStyleChange('justifyContent', val)} />
+        <StyleInput label="Align Items" value={(currentStyles.alignItems || '') as string} onChange={val => handleStyleChange('alignItems', val)} />
+        <StyleInput label="Align Self" type="select" value={(currentStyles.alignSelf || '') as string} onChange={val => handleStyleChange('alignSelf', val)} options={['auto', 'flex-start', 'flex-end', 'center', 'stretch'].map(v => ({label:v, value:v}))}/>
+        <StyleInput label="Overflow" value={(currentStyles.overflow || '') as string} onChange={val => handleStyleChange('overflow', val)} />
       </CollapsibleGroup>
 
       <CollapsibleGroup title="Box Model & Spacing">
-        <StyleInput label="Width" value={currentStyles.width || ''} onChange={val => handleStyleChange('width', val)} />
-        <StyleInput label="Height" value={currentStyles.height || ''} onChange={val => handleStyleChange('height', val)} />
+        <StyleInput label="Width" value={(currentStyles.width || '') as string} onChange={val => handleStyleChange('width', val)} />
+        <StyleInput label="Height" value={(currentStyles.height || '') as string} onChange={val => handleStyleChange('height', val)} />
         <div className="grid grid-cols-2 gap-2">
-          <StyleInput label="Min-W" value={currentStyles.minWidth || ''} onChange={val => handleStyleChange('minWidth', val)} />
-          <StyleInput label="Min-H" value={currentStyles.minHeight || ''} onChange={val => handleStyleChange('minHeight', val)} />
-          <StyleInput label="Max-W" value={currentStyles.maxWidth || ''} onChange={val => handleStyleChange('maxWidth', val)} />
-          <StyleInput label="Max-H" value={currentStyles.maxHeight || ''} onChange={val => handleStyleChange('maxHeight', val)} />
+          <StyleInput label="Min-W" value={(currentStyles.minWidth || '') as string} onChange={val => handleStyleChange('minWidth', val)} />
+          <StyleInput label="Min-H" value={(currentStyles.minHeight || '') as string} onChange={val => handleStyleChange('minHeight', val)} />
+          <StyleInput label="Max-W" value={(currentStyles.maxWidth || '') as string} onChange={val => handleStyleChange('maxWidth', val)} />
+          <StyleInput label="Max-H" value={(currentStyles.maxHeight || '') as string} onChange={val => handleStyleChange('maxHeight', val)} />
         </div>
-        <StyleInput label="Padding" value={currentStyles.padding || ''} onChange={val => handleStyleChange('padding', val)} />
-        <StyleInput label="Margin" value={currentStyles.margin || ''} onChange={val => handleStyleChange('margin', val)} />
-        <StyleInput label="Gap" value={currentStyles.gap || ''} onChange={val => handleStyleChange('gap', val)} />
+        <StyleInput label="Padding" value={(currentStyles.padding || '') as string} onChange={val => handleStyleChange('padding', val)} />
+        <StyleInput label="Margin" value={(currentStyles.margin || '') as string} onChange={val => handleStyleChange('margin', val)} />
+        <StyleInput label="Gap" value={(currentStyles.gap || '') as string} onChange={val => handleStyleChange('gap', val)} />
       </CollapsibleGroup>
 
       <CollapsibleGroup title="Typography">
-        <StyleInput label="Font Family" value={currentStyles.fontFamily || ''} onChange={val => handleStyleChange('fontFamily', val)} />
-        <StyleInput label="Font Size" value={currentStyles.fontSize || ''} onChange={val => handleStyleChange('fontSize', val)} />
-        <StyleInput label="Font Weight" value={currentStyles.fontWeight || ''} onChange={val => handleStyleChange('fontWeight', val)} />
-        <StyleInput label="Line Height" value={currentStyles.lineHeight || ''} onChange={val => handleStyleChange('lineHeight', val)} />
-        <StyleInput label="Letter Spacing" value={currentStyles.letterSpacing || ''} onChange={val => handleStyleChange('letterSpacing', val)} />
-        <StyleInput label="Text Align" type="select" value={currentStyles.textAlign || ''} onChange={val => handleStyleChange('textAlign', val)} options={[{label: 'Left', value: 'left'}, {label: 'Center', value: 'center'}, {label: 'Right', value: 'right'}]} />
-        <StyleInput label="Text Decoration" value={currentStyles.textDecoration || ''} onChange={val => handleStyleChange('textDecoration', val)} />
-        <StyleInput label="Text Transform" value={currentStyles.textTransform || ''} onChange={val => handleStyleChange('textTransform', val)} />
-        <StyleInput label="Color" type="color" value={currentStyles.color || ''} onChange={val => handleStyleChange('color', val)} />
-        {['ordered-list', 'unordered-list'].includes(element.type) &&
-          <StyleInput label="List Style Type" type="select" value={currentStyles.listStyleType || ''} onChange={(val:string) => handleStyleChange('listStyleType', val)} options={['disc', 'circle', 'square', 'decimal', 'lower-alpha', 'upper-alpha', 'none'].map(v => ({label:v, value:v}))}/>
+        <StyleInput label="Font Family" value={(currentStyles.fontFamily || '') as string} onChange={val => handleStyleChange('fontFamily', val)} />
+        <StyleInput label="Font Size" value={(currentStyles.fontSize || '') as string} onChange={val => handleStyleChange('fontSize', val)} />
+        <StyleInput label="Font Weight" value={(currentStyles.fontWeight || '') as string} onChange={val => handleStyleChange('fontWeight', val)} />
+        <StyleInput label="Line Height" value={(currentStyles.lineHeight || '') as string} onChange={val => handleStyleChange('lineHeight', val)} />
+        <StyleInput label="Letter Spacing" value={(currentStyles.letterSpacing || '') as string} onChange={val => handleStyleChange('letterSpacing', val)} />
+        <StyleInput label="Text Align" type="select" value={(currentStyles.textAlign || '') as string} onChange={val => handleStyleChange('textAlign', val)} options={[{label: 'Left', value: 'left'}, {label: 'Center', value: 'center'}, {label: 'Right', value: 'right'}]} />
+        <StyleInput label="Text Decoration" value={(currentStyles.textDecoration || '') as string} onChange={val => handleStyleChange('textDecoration', val)} />
+        <StyleInput label="Text Transform" value={(currentStyles.textTransform || '') as string} onChange={val => handleStyleChange('textTransform', val)} />
+        <StyleInput label="Color" type="color" value={(currentStyles.color || '') as string} onChange={val => handleStyleChange('color', val)} />
+        {['ordered-list', 'unordered-list'].includes(element.type ?? '') &&
+          <StyleInput label="List Style Type" type="select" value={(currentStyles.listStyleType || '') as string} onChange={(val:string) => handleStyleChange('listStyleType', val)} options={['disc', 'circle', 'square', 'decimal', 'lower-alpha', 'upper-alpha', 'none'].map(v => ({label:v, value:v}))}/>
         }
       </CollapsibleGroup>
 
       <CollapsibleGroup title="Visual & Effects">
-        <StyleInput label="Background" value={currentStyles.background || ''} onChange={val => handleStyleChange('background', val)} />
+        <StyleInput label="Background" value={(currentStyles.background || '') as string} onChange={val => handleStyleChange('background', val)} />
           <p className="text-yellow-300 text-[9px]">
-            💡 Tip: To set a background image, enter the full image URL in this format: <code>url("https://example.com/image.jpg")</code>
+            💡 Tip: To set a background image, enter the full image URL in this format: <code>url(&quot;https://example.com/image.jpg&quot;)</code>
           </p>
-        <StyleInput label="Opacity" type="number" value={currentStyles.opacity || ''} onChange={val => handleStyleChange('opacity', val)} />
-        <StyleInput label="Border" value={currentStyles.border || ''} onChange={val => handleStyleChange('border', val)} placeholder="e.g., 2px solid #4f46e5" />
-        <StyleInput label="Border Radius" value={currentStyles.borderRadius || ''} onChange={val => handleStyleChange('borderRadius', val)} placeholder="e.g., 12px" />
-        <StyleInput label="Box Shadow" value={currentStyles.boxShadow || ''} onChange={val => handleStyleChange('boxShadow', val)} placeholder="e.g., 0 10px 15px -3px #0000001a" />
-        <StyleInput label="Transition" value={currentStyles.transition || ''} onChange={val => handleStyleChange('transition', val)} placeholder="e.g., all 0.3s ease" />
+        <StyleInput label="Opacity" type="number" value={(currentStyles.opacity || '') as string} onChange={val => handleStyleChange('opacity', val)} />
+        <StyleInput label="Border" value={(currentStyles.border || '') as string} onChange={val => handleStyleChange('border', val)} placeholder="e.g., 2px solid #4f46e5" />
+        <StyleInput label="Border Radius" value={(currentStyles.borderRadius || '') as string} onChange={val => handleStyleChange('borderRadius', val)} placeholder="e.g., 12px" />
+        <StyleInput label="Box Shadow" value={(currentStyles.boxShadow ?? '') as string} onChange={val => handleStyleChange('boxShadow', val)} placeholder="e.g., 0 10px 15px -3px #0000001a" />
+        <StyleInput label="Transition" value={(currentStyles.transition ?? '') as string} onChange={val => handleStyleChange('transition', val)} placeholder="e.g., all 0.3s ease" />
       </CollapsibleGroup>
        <div className="mt-4">
           <button
@@ -3178,9 +3193,9 @@ const PagePropertiesPanel = ({ pageStyles }: { pageStyles: PageStyles }) => {
         <div>
             <h3 className="font-bold mb-4">Page Properties</h3>
             <CollapsibleGroup title="Global Styles" open={true}>
-                <StyleInput label="Background Color" type="color" value={pageStyles.backgroundColor} onChange={(val: string) => handleStyleChange('backgroundColor', val)} />
-                <StyleInput label="Default Text Color" type="color" value={pageStyles.color} onChange={(val: string) => handleStyleChange('color', val)} />
-                <StyleInput label="Font Family" value={pageStyles.fontFamily} onChange={(val: string) => handleStyleChange('fontFamily', val)} />
+                <StyleInput label="Background Color" type="color" value={pageStyles.backgroundColor?? ''} onChange={(val: string) => handleStyleChange('backgroundColor', val)} />
+                <StyleInput label="Default Text Color" type="color" value={pageStyles.color?? ''} onChange={(val: string) => handleStyleChange('color', val)} />
+                <StyleInput label="Font Family" value={pageStyles.fontFamily?? ''} onChange={(val: string) => handleStyleChange('fontFamily', val)} />
             </CollapsibleGroup>
             <GlobalCssPanel />
             <CollapsibleGroup title="Design System" open>
@@ -3281,21 +3296,21 @@ VersionHistoryPanel.displayName = 'VersionHistoryPanel';
 
 const NavbarProperties = ({ content, onContentChange }: { content: any; onContentChange: (c: any) => void }) => {
     const handleLinkChange = (index: number, field: string, value: any) => {
-        const newLinks = produce(content.links, draft => {
+        const newLinks = produce<Links>(content.links, draft => {
             draft[index][field] = value;
         });
         onContentChange({ ...content, links: newLinks });
     };
 
     const handleStyleChange = (key: string, value: string) => {
-        onContentChange(produce(content, draft => {
+        onContentChange(produce<MyComponentContent>(content, draft => {
             if (!draft.styles) draft.styles = {};
             draft.styles[key] = value;
         }));
     };
 
     const handleCtaStyleChange = (key: string, value: string) => {
-        onContentChange(produce(content, draft => {
+        onContentChange(produce<MyComponentContent>(content, draft => {
             if (!draft.cta.styles) draft.cta.styles = {};
             draft.cta.styles[key] = value;
         }));
@@ -3369,7 +3384,7 @@ const GalleryProperties = ({ content, onContentChange }: { content: any; onConte
 const ProfileCardProperties = ({ element }: { element: Element }) => (
     <>
         <p className="text-xs text-gray-400 mb-2">
-            To edit the image or text, select the element directly on the canvas or from the "Child Elements" list below.
+            To edit the image or text, select the element directly on the canvas or from the &quot;Child Elements&quot; list below.
         </p>
         <ChildElementSelector element={element} />
     </>
@@ -3429,7 +3444,7 @@ const generateElementFromAI = (componentData: { type: ElementType; content: any 
     const hydratedElement = produce(baseElement, draft => {
         switch (draft.type) {
             case 'navbar': {
-                const navContent = JSON.parse(draft.content);
+                const navContent = JSON.parse(draft.content ?? '');
                 navContent.logo.text = content.logoText || navContent.logo.text;
                 navContent.logo.type = 'text';
                 if (content.links) {
@@ -3446,7 +3461,7 @@ const generateElementFromAI = (componentData: { type: ElementType; content: any 
                     if (content.ctaButton) draft.children[2].content = content.ctaButton;
                 }
                 if (content.imageUrl) {
-                    const heroContent = JSON.parse(draft.content);
+                    const heroContent = JSON.parse(draft.content ?? '');
                     heroContent.backgroundImageUrl = content.imageUrl;
                     draft.content = JSON.stringify(heroContent);
                 }
@@ -3461,7 +3476,7 @@ const generateElementFromAI = (componentData: { type: ElementType; content: any 
                 draft.children = [headingEl, pEl];
 
                 if (content.imageUrl) {
-                    const sectionContent = JSON.parse(draft.content);
+                    const sectionContent = JSON.parse(draft.content ?? '');
                     sectionContent.imageSrc = content.imageUrl;
                     draft.content = JSON.stringify(sectionContent);
                 }
@@ -3497,16 +3512,16 @@ const generateElementFromAI = (componentData: { type: ElementType; content: any 
                             stepBlock.children[1].content = `<h3>${step.title || ''}</h3>`;
                             stepBlock.children[2].content = `<p>${step.text || ''}</p>`;
                         }
-                        stepsContainer.children.push(stepBlock);
+                        stepsContainer.children!.push(stepBlock);
                         if (index < content.steps.length - 1) {
-                            stepsContainer.children.push(createNewElement('step-connector') as Element);
+                            stepsContainer.children!.push(createNewElement('step-connector') as Element);
                         }
                     });
                 }
                 break;
             }
              case 'gallery': {
-                const galleryContent = JSON.parse(draft.content);
+                const galleryContent = JSON.parse(draft.content ?? '');
                 if (content.imageUrls) {
                     galleryContent.images = content.imageUrls;
                 }
@@ -3514,7 +3529,7 @@ const generateElementFromAI = (componentData: { type: ElementType; content: any 
                 break;
             }
             case 'testimonial': {
-                const testimonialContent = JSON.parse(draft.content);
+                const testimonialContent = JSON.parse(draft.content ?? '');
                 testimonialContent.quote = content.quote || testimonialContent.quote;
                 testimonialContent.name = content.name || testimonialContent.name;
                 testimonialContent.title = content.title || testimonialContent.title;

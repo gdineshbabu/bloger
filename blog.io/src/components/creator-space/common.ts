@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { PageContent, PageStyles, SiteData } from "./editor";
 
 

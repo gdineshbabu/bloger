@@ -1,6 +1,7 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 'use client';
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Head from 'next/head';
 import { useParams, useRouter } from 'next/navigation';
 import useSWR from 'swr';
@@ -8,16 +9,17 @@ import {
   FaMobileAlt, FaTabletAlt, FaDesktop, FaArrowLeft,
 } from 'react-icons/fa';
 import {
-  Menu, X, ChevronDown, Star, Loader2, CheckCircle2, AlertCircle, ArrowLeftCircle, ArrowRightCircle,
+  Menu, X, ChevronDown, Star, Loader2, AlertCircle, ArrowLeftCircle, ArrowRightCircle,
 } from 'lucide-react';
 import * as lucideIcons from 'lucide-react';
 
 // --- TYPE DEFINITIONS ---
 // Assuming these types are exported from a shared file.
 // Adjust the import path as needed based on your project structure.
-import {
-  PageContent, Element, ElementType, SiteData, PageStyles,
+import { Element, SiteData, PageStyles,
 } from '../creator-space/editor'; // Adjust this path
+import Image from 'next/image';
+import Link from 'next/link';
 
 // --- API CLIENT (Read-Only) ---
 
@@ -115,7 +117,7 @@ const getYouTubeVideoId = (url: string) => {
 
 const NavbarComponent = ({ element, screenSize, ...props }: { element: Element; screenSize: 'desktop' | 'tablet' | 'mobile'; [key: string]: any }) => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const navContent = JSON.parse(element.content);
+  const navContent = JSON.parse(element.content ?? '');
   const styles = navContent.styles || {};
   const ctaStyles = navContent.cta?.styles || {};
 
@@ -148,7 +150,7 @@ const NavbarComponent = ({ element, screenSize, ...props }: { element: Element; 
           `}</style>
           <div className="flex justify-between items-center w-full">
               {navContent.logo.type === 'image' ? (
-                  <img src={navContent.logo.src} alt={navContent.logo.alt || 'Logo'} className="h-10"/>
+                  <Image src={navContent.logo.src} alt={navContent.logo.alt || 'Logo'} className="h-10" width={1000} height={1000}/>
               ) : (
                   <span style={{ fontWeight: 'bold', fontSize: '1.5rem' }}>{navContent.logo.text}</span>
               )}
@@ -223,14 +225,23 @@ const HeroComponent = ({
   props: any
   renderChildren: any
 }) => {
-  const content = JSON.parse(element.content || '{}')
+  const content = JSON.parse(element.content || '{}');
 
-  const positionClasses = {
-    'center-middle': 'justify-center items-center text-center',
-    'center-top': 'justify-center items-start text-center',
-    'bottom-left': 'justify-end items-start text-left',
-    'bottom-right': 'justify-end items-end text-right',
-  }[content.contentPosition || 'center-middle']
+  type ContentPosition =
+  | 'center-middle'
+  | 'center-top'
+  | 'bottom-left'
+  | 'bottom-right';
+
+const positionClassesMap: Record<ContentPosition, string> = {
+  'center-middle': 'justify-center items-center text-center',
+  'center-top': 'justify-center items-start text-center',
+  'bottom-left': 'justify-end items-start text-left',
+  'bottom-right': 'justify-end items-end text-right',
+};
+
+const positionClasses =
+  positionClassesMap[(content.contentPosition as ContentPosition) || 'center-middle'];
 
   const isYouTube = (url: string) =>
     /youtube\.com|youtu\.be/.test(url ?? '')
@@ -249,10 +260,12 @@ const HeroComponent = ({
       className={`${props.className || ''} relative overflow-hidden h-screen`}
     >
       {content.backgroundType === 'image' && content.backgroundImageUrl && (
-        <img
+        <Image
           src={content.backgroundImageUrl}
           alt="background"
           className="absolute top-0 left-0 w-full h-full object-cover z-0"
+          width={1000}
+          height={1000}
         />
       )}
 
@@ -382,37 +395,39 @@ const SingleAutoScrollComponent = ({ element, props, screenSize }: { element: El
   }, [totalChildren, delay, isPaused]);
 
   const getTransitionClasses = (index: number) => {
-      const isActive = index === currentIndex;
-      let base = 'transition-all duration-700 ease-in-out absolute w-full h-full flex justify-center items-center';
-      
-      if (transition === 'fade') {
-          return `${base} ${isActive ? 'opacity-100' : 'opacity-0'}`;
-      }
-      if (transition.startsWith('slide-')) {
-          let transformClass = '';
-          if (isActive) {
-              transformClass = 'transform translate-x-0 translate-y-0';
-          } else {
-              switch(transition) {
-                  case 'slide-top': transformClass = 'transform -translate-y-full'; break;
-                  case 'slide-bottom': transformClass = 'transform translate-y-full'; break;
-                  case 'slide-left': transformClass = 'transform -translate-x-full'; break;
-                  case 'slide-right': transformClass = 'transform translate-x-full'; break;
-              }
-          }
-          return `${base} ${transformClass} ${isActive ? 'opacity-100' : 'opacity-0'}`;
-      }
-      return base;
-  }
+    const isActive = index === currentIndex;
+    const base = 'transition-all duration-700 ease-in-out absolute w-full h-full flex justify-center items-center';
+
+    if (transition === 'fade') {
+        return `${base} ${isActive ? 'opacity-100' : 'opacity-0'}`;
+    }
+
+    if (transition.startsWith('slide-')) {
+        const slideDirectionMap: Record<string, string> = {
+            'slide-top': 'transform -translate-y-full',
+            'slide-bottom': 'transform translate-y-full',
+            'slide-left': 'transform -translate-x-full',
+            'slide-right': 'transform translate-x-full',
+        };
+
+        const transformClass = isActive
+            ? 'transform translate-x-0 translate-y-0'
+            : slideDirectionMap[transition] || '';
+
+        return `${base} ${transformClass} ${isActive ? 'opacity-100' : 'opacity-0'}`;
+    }
+
+    return base;
+  };
   
   return (
       <div {...props} onMouseEnter={() => setIsHovering(true)} onMouseLeave={() => setIsHovering(false)}>
-            {element.children.map((child, index) => (
+            {element.children!.map((child, index) => (
                  <div key={child.id} className={getTransitionClasses(index)}>
                      <RenderElement element={child} screenSize={screenSize} />
                  </div>
             ))}
-            {element.children.length === 0 && <div className="min-h-[60px] flex items-center justify-center text-xs text-gray-400">No slides</div>}
+            {element.children!.length === 0 && <div className="min-h-[60px] flex items-center justify-center text-xs text-gray-400">No slides</div>}
             <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-black/50 text-white text-xs px-2 py-1 rounded-full">
               <span>{currentIndex + 1} / {totalChildren}</span>
           </div>
@@ -442,14 +457,14 @@ const ImageCarouselComponent = ({ element, props, screenSize }: { element: Eleme
 
   return (
       <div {...props} onMouseEnter={() => setIsHovering(true)} onMouseLeave={() => setIsHovering(false)}>
-          {element.children.map((child, index) => (
+          {element.children!.map((child, index) => (
               <div key={child.id} className={`absolute w-full h-full transition-opacity duration-1000 ease-in-out ${index === currentIndex ? 'opacity-100' : 'opacity-0'}`}>
                   <RenderElement element={child} screenSize={screenSize} />
               </div>
           ))}
-          {element.children.length === 0 && <div className="min-h-[60px] flex items-center justify-center text-xs text-gray-400">No slides</div>}
+          {element.children!.length === 0 && <div className="min-h-[60px] flex items-center justify-center text-xs text-gray-400">No slides</div>}
           <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2">
-              {element.children.map((_, index) => (
+              {element.children!.map((_, index) => (
                   <button
                       key={index}
                       onClick={() => setCurrentIndex(index)}
@@ -481,14 +496,14 @@ const HeroSliderComponent = ({ element, props, screenSize }: { element: Element;
 
   return (
       <div {...props} onMouseEnter={() => setIsHovering(true)} onMouseLeave={() => setIsHovering(false)}>
-          {element.children.map((child, index) => (
+          {element.children!.map((child, index) => (
               <div key={child.id} className={`absolute w-full h-full transition-opacity duration-1000 ease-in-out ${index === currentIndex ? 'opacity-100' : 'opacity-0'}`}>
                   <RenderElement element={child} screenSize={screenSize} />
               </div>
           ))}
-            {element.children.length === 0 && <div className="min-h-[60px] flex items-center justify-center text-xs text-gray-400">No slides</div>}
+            {element.children!.length === 0 && <div className="min-h-[60px] flex items-center justify-center text-xs text-gray-400">No slides</div>}
             <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2">
-              {element.children.map((_, index) => (
+              {element.children!.map((_, index) => (
                   <button 
                       key={index} 
                       onClick={() => setCurrentIndex(index)}
@@ -539,10 +554,12 @@ const HeroSlideComponent = ({
   return (
     <div {...props} className="relative w-full h-full overflow-hidden">
       {content.backgroundType === 'image' && content.backgroundImageUrl && (
-        <img
+        <Image
           src={content.backgroundImageUrl}
           alt="background"
           className="absolute top-0 left-0 w-full h-full object-cover z-0"
+          width={1000}
+          height={1000}
         />
       )}
       {content.backgroundType === 'video' && content.backgroundVideoUrl && (
@@ -577,11 +594,11 @@ const HeroSlideComponent = ({
 HeroSlideComponent.displayName = 'HeroSlideComponent';
 
 const TestimonialComponent = ({ element, props }: { element: Element; props: any }) => {
-  const content = JSON.parse(element.content);
+  const content = JSON.parse(element.content?? '');
   return (
       <div {...props}>
-          <img src={content.avatar} alt={content.name} className="w-20 h-20 rounded-full mx-auto mb-4" />
-          <p className="text-lg italic mb-4">"{content.quote}"</p>
+          <Image src={content.avatar} alt={content.name} className="w-20 h-20 rounded-full mx-auto mb-4" width={1000} height={100} />
+          <p className="text-lg italic mb-4">&quot;{content.quote}&quot;</p>
           <h4 className="font-bold">{content.name}</h4>
           <p className="text-sm text-gray-500">{content.title}</p>
       </div>
@@ -590,7 +607,7 @@ const TestimonialComponent = ({ element, props }: { element: Element; props: any
 TestimonialComponent.displayName = 'TestimonialComponent';
 
 const FaqComponent = ({ element, props }: { element: Element; props: any }) => {
-  const content = JSON.parse(element.content);
+  const content = JSON.parse(element.content?? '');
   const [openItem, setOpenItem] = useState<string | null>(content.items[0]?.id || null);
 
   return (
@@ -612,7 +629,7 @@ const FaqComponent = ({ element, props }: { element: Element; props: any }) => {
 FaqComponent.displayName = 'FaqComponent';
 
 const FeatureBlockComponent = ({ element, props }: { element: Element; props: any }) => {
-  const content = JSON.parse(element.content);
+  const content = JSON.parse(element.content ?? '');
   const Icon = (lucideIcons as any)[content.icon] || Star;
   return (
       <div {...props}>
@@ -705,7 +722,7 @@ const RenderElement = React.memo(({ element, screenSize }: { element: Element; s
   
   const renderTextContent = () => (
       <div
-          dangerouslySetInnerHTML={{ __html: element.content }}
+          dangerouslySetInnerHTML={{ __html: element.content?? '' }}
       />
   );
   
@@ -832,7 +849,7 @@ const RenderElement = React.memo(({ element, screenSize }: { element: Element; s
               )
           }
           case 'columns': {
-              const content = JSON.parse(element.content);
+              const content = JSON.parse(element.content ?? '');
               return (
                   <div {...props}>
                       {content.columns.map((col: { id: string; children: Element[] }) => (
@@ -845,12 +862,12 @@ const RenderElement = React.memo(({ element, screenSize }: { element: Element; s
           }
           case 'heading': case 'paragraph': case 'ordered-list': case 'unordered-list': return <div {...props}>{renderTextContent()}</div>;
           case 'gallery': {
-              const galleryContent = JSON.parse(element.content);
+              const galleryContent = JSON.parse(element.content?? '');
               const gridStyle = {
                   ...combinedStyles,
                   gridTemplateColumns: `repeat(${galleryContent.columns || 3}, 1fr)`
               };
-              return <div {...props} style={gridStyle}>{galleryContent.images.map((src: string, i: number) => <img key={i} src={src} alt={`Gallery image ${i+1}`} style={{width: '100%', height: 'auto', borderRadius: '8px'}} />)}</div>;
+              return <div {...props} style={gridStyle}>{galleryContent.images.map((src: string, i: number) => <Image key={i} src={src} alt={`Gallery image ${i+1}`} style={{width: '100%', height: 'auto', borderRadius: '8px'}} width={1000} height={1000}  />)}</div>;
           }
           case 'footer': {
               return <footer {...props}>{renderChildren(element.children || [], element.id)}</footer>;
@@ -859,7 +876,7 @@ const RenderElement = React.memo(({ element, screenSize }: { element: Element; s
           case 'video': {
               let videoContent;
               try {
-                  videoContent = JSON.parse(element.content);
+                  videoContent = JSON.parse(element.content ?? '');
               } catch (e) {
                   videoContent = { url: element.content, autoplay: false, controls: true, loop: false, muted: false };
               }
@@ -882,7 +899,7 @@ const RenderElement = React.memo(({ element, screenSize }: { element: Element; s
           }
           case 'divider': return <div {...props} />;
           case 'contact-form': {
-          const formContent = JSON.parse(element.content);
+          const formContent = JSON.parse(element.content ?? '');
           
           const renderField = (field: { id: string; label: string; type: string }) => {
               const commonProps = {
@@ -912,7 +929,7 @@ const RenderElement = React.memo(({ element, screenSize }: { element: Element; s
               </form>
           );
           }
-          case 'image': return <img {...props} src={element.content} alt="" />;
+          case 'image': return <Image {...props} src={element.content ?? ''} alt="" width={1000} height={1000} />;
           case 'button': return <button {...props}>{element.content}</button>;
           default: return <div {...props} className="p-4 bg-gray-200 text-gray-800 rounded">Invalid Element: {element.type}</div>;
       }
@@ -990,7 +1007,7 @@ export default function LivePreviewPage() {
         <title>{currentSite?.title || 'Live Preview'}</title>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+        <Link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
       </Head>
 
       <DynamicStyleSheet pageStyles={pageStyles}/>

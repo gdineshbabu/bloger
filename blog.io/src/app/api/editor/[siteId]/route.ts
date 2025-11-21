@@ -2,29 +2,52 @@ import { NextRequest, NextResponse } from 'next/server';
 import { dbAdmin, authAdmin } from '@/firebase/firebaseAdmin';
 import { FieldValue } from 'firebase-admin/firestore';
 
+/* ---------------------------------------------
+   Type for the updatable fields in PATCH request
+---------------------------------------------- */
+type SiteUpdateData = {
+    title?: string;
+    draftContent?: string;
+    publishedContent?: string;
+    status?: 'published' | 'draft';
+    updatedAt: FirebaseFirestore.FieldValue;
+};
+
+/* ---------------------------------------------
+   Ownership verification helper
+---------------------------------------------- */
 async function verifyOwnership(request: NextRequest, siteId: string) {
     const token = request.headers.get('Authorization')?.split('Bearer ')[1];
     if (!token) {
         return { error: 'Unauthorized', status: 401, uid: null };
     }
+
     try {
         const decodedToken = await authAdmin.verifyIdToken(token);
         const siteDoc = await dbAdmin.collection('sites').doc(siteId).get();
+
         if (!siteDoc.exists || siteDoc.data()?.ownerId !== decodedToken.uid) {
             return { error: 'Forbidden', status: 403, uid: null };
         }
+
         return { error: null, status: 200, uid: decodedToken.uid };
-    } catch (e) {
+    } catch {
         return { error: 'Unauthorized', status: 401, uid: null };
     }
 }
 
+/* ---------------------------------------------
+   GET /api/sites/[siteId]
+---------------------------------------------- */
 export async function GET(
     request: NextRequest,
-    { params }: { params: { siteId: string } }
+    { params }: { params: Promise<{ siteId: string }> }
 ) {
-    const { siteId } = params;
+    // In Next.js 15+, params is a Promise that must be awaited
+    const { siteId } = await params;
+    
     const authResult = await verifyOwnership(request, siteId);
+
     if (authResult.error) {
         return NextResponse.json({ message: authResult.error }, { status: authResult.status });
     }
@@ -39,12 +62,18 @@ export async function GET(
     return NextResponse.json({ id: doc.id, ...doc.data() });
 }
 
+/* ---------------------------------------------
+   PATCH /api/sites/[siteId]
+---------------------------------------------- */
 export async function PATCH(
     request: NextRequest,
-    { params }: { params: { siteId: string } }
+    { params }: { params: Promise<{ siteId: string }> }
 ) {
-    const { siteId } = params;
+    // In Next.js 15+, params is a Promise that must be awaited
+    const { siteId } = await params;
+    
     const authResult = await verifyOwnership(request, siteId);
+
     if (authResult.error) {
         return NextResponse.json({ message: authResult.error }, { status: authResult.status });
     }
@@ -52,7 +81,7 @@ export async function PATCH(
     const { title, draftContent, publish } = await request.json();
     const siteRef = dbAdmin.collection('sites').doc(siteId);
 
-    const dataToUpdate: { [key: string]: any } = {
+    const dataToUpdate: SiteUpdateData = {
         updatedAt: FieldValue.serverTimestamp(),
     };
 
@@ -64,7 +93,7 @@ export async function PATCH(
     }
     if (publish === true && draftContent !== undefined) {
         dataToUpdate.publishedContent = draftContent;
-        dataToUpdate.status = 'published'; 
+        dataToUpdate.status = 'published';
     }
 
     if (Object.keys(dataToUpdate).length === 1) {
